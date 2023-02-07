@@ -1,3 +1,6 @@
+# Status
+Highly unfinished. Should be done by summer 2023.
+
 # TREPAN
 Implementation of the TREPAN algorithm in Python
 
