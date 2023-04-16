@@ -1,5 +1,9 @@
 # TREPAN
-Implementation of the TREPAN algorithm in Python
+Implementation of the TREPAN algorithm in Python.
+
+https://proceedings.neurips.cc/paper_files/paper/1995/file/45f31d16b1058d586fc3be7207b58053-Paper.pdf
+
+Read notebook for details.
 
 Created in Python 3.9 environment.
 Required libs: math, numpy, pandas, itertools, torch, sklearn, graphviz
