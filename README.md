@@ -11,7 +11,6 @@ To implement:
 
 Known issues:
 - Fidelity function doesnt compare tree to neural network, but neural network to neural network. Always returns max score of 1. Resulting in a FIFO expansion and not best first.
-- When defi
 
 To run:
 python run.py
