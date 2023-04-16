@@ -7,15 +7,31 @@ import torch.nn as nn
 from copy import deepcopy
 from sklearn.neighbors import KernelDensity
 from graphviz import Digraph
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
 class IrisNN(nn.Module):
+    """
+    A neural network model for the Iris dataset classification task.
+
+    This class extends the PyTorch `nn.Module` and implements a simple feedforward neural network
+    with a single hidden layer for the Iris dataset classification. It includes methods for training,
+    fitting, and predicting using the neural network.
+
+    Attributes:
+        fc1 (nn.Linear): First fully connected layer, mapping input features to hidden dimensions.
+        relu (nn.ReLU): Rectified Linear Unit activation function.
+        fc2 (nn.Linear): Second fully connected layer, mapping hidden dimensions to output dimensions.
+        softmax (nn.Softmax): Softmax activation function for converting logits to probabilities.
+
+    Example:
+        iris_nn = IrisNN(input_dim=4, hidden_dim=10, output_dim=3)
+        iris_nn.fit(X, y, epochs=100, batch_size=16, lr=0.01)
+        y_pred = iris_nn.predict(X)
+    """
     def __init__(self, input_dim, hidden_dim, output_dim):
         super(IrisNN, self).__init__()
         self.fc1 = nn.Linear(input_dim, hidden_dim)
@@ -76,6 +92,9 @@ class IrisNN(nn.Module):
 
 # Define the Oracle class
 class Oracle:
+    """
+    This is the oracle class used to bind the tree expansion and neural network together. We use this to generate more instances of values, model feature distribution and to keep track of the neural network.
+    """
     def __init__(self, model, X, y):
         self.model = model
         self.X = X
@@ -206,6 +225,50 @@ class TREPAN:
         self.cutoff = cutoff
         self.number_of_instances_for_generation = num_of_instances
     
+    def predict(self, X):
+        """
+        Predict the class labels for the given instances using the TREPAN decision tree.
+
+        Args:
+            X (numpy.ndarray): An array of instances for which class labels need to be predicted.
+
+        Returns:
+            numpy.ndarray: An array of predicted class labels for the input instances.
+        """
+
+        def traverse_tree(node, instance):
+            """
+            Traverse the tree recursively to find the leaf node corresponding to the given instance.
+
+            Args:
+                node (Node): The current node being traversed.
+                instance (numpy.ndarray): A single instance for which a leaf node needs to be found.
+
+            Returns:
+                Node: The leaf node corresponding to the given instance.
+            """
+
+            # If the current node is a leaf, return the node
+            if node.leaf:
+                return node
+
+            # If the current node is an internal node, traverse its children based on the m-of-n conditions
+            else:
+                for child in node.children:
+                    if self._satisfies_m_of_n_conditions(child.constraints, instance, node.split.m):
+                        return traverse_tree(child, instance)
+
+
+        # Initialize an array to store predicted class labels
+        predictions = np.empty(X.shape[0], dtype=int)
+
+        # Iterate through the instances and predict class labels
+        for idx, instance in enumerate(X):
+            leaf_node = traverse_tree(self.root, instance)
+            predictions[idx] = leaf_node.label
+
+        return predictions
+
     def fit(self):
 
         # Define an empty queue
@@ -226,14 +289,23 @@ class TREPAN:
         # Initialize best first expansion
         self._best_first_tree_expansion(queue, F)
 
-
     def _best_first_tree_expansion(self, queue, F):
+        """
+        Expands the decision tree by selecting the best node and its corresponding split.
+        This function iteratively evaluates nodes in the queue, computes their gain ratio, and
+        generates child nodes until the maximum tree size is reached or the queue is empty.
+
+        Args:
+            queue (list): List of nodes to be evaluated and expanded.
+            F (list): List of candidate splits to be considered for each node.
+        """
 
         # 0. Run as long as there are still nodes in the queue and we havent reached limit
         while queue and self.current_amount_of_nodes < self.max_tree_size:
             
             # 1. Evaluate which node in the queue has the highest score, and we pop this one
             # The formula we use is f(n) = reach(n) * (1 - fidelity(n))
+            # Todo: Fix fidelity to compare towards tree.
             N = self._get_best_scoring_node_in_queue(queue)
             queue.remove(N)
 
@@ -261,36 +333,36 @@ class TREPAN:
             else:
                 best_split = best_binary_split
 
-            # Set current node as an internal node
+            # 8. Set current node as an internal node
             N.leaf = False
             N.split = best_split
 
-            # Identify all logical outcomes
+            # 9. Identify all logical outcomes
             best_split.outcomes = combinations(best_split.conditions, best_split.m)
 
-            # 7. For every logical outcome of the m-of-n, we create a child node
+            # For every logical outcome of the m-of-n, we create a child node
             for new_constraints_c in best_split.outcomes:
                 
-                # 8. Append constraints from parent node N
+                # 11. Append constraints from parent node N
                 constraints_c = deepcopy(N.constraints) + deepcopy(list(new_constraints_c))
 
-                # Update original training data using the new constraints
+                # 12. Update original training data using the new constraints
                 child_mask = self._apply_constraints(constraints_c, N.training_examples)
                 training_examples_c = deepcopy(N.training_examples[child_mask])
                 training_predictions_c = deepcopy(N.training_predictions[child_mask])
                 
-                # 9. Generate new set of instances for evaluation. The number is the defined number in init for evaluation minus the number from training examples.
+                # 13. Generate new set of instances for evaluation. The number is the defined number in init for evaluation minus the number from training examples.
                 instances_for_evaluation = self.oracle.generate_instances(constraints_c, self.number_of_instances_for_generation - (len(training_examples_c)))
                 
-                # Create a new child node as leaf node
+                # 14. Create a new child node as leaf node, define it as child of N, and add to node count (for stopping criteria).
                 C = Node(training_examples_c, training_predictions_c, constraints_c, True, parent=N)
                 N.children.append(C)
                 self.current_amount_of_nodes += 1
 
-                # Get the most common class prediction using the oracle
+                # 15. Get the most common class prediction using the oracle
                 most_common_class, p_c = self._most_common_class_proportion(instances_for_evaluation, training_examples_c, training_predictions_c)
                 
-                # If proportion is larger than some cut-off value, let it be a leaf and assign target class
+                # 16. If proportion is larger than some cut-off value, let it be a leaf and assign target class
                 if p_c >= self.cutoff:
                     C.label = most_common_class
                 
@@ -298,65 +370,6 @@ class TREPAN:
                 else:
                     queue.append(C)
 
-    def _get_best_binary_split(self, F_N, node, X_from_oracle, y_from_oracle):
-        best_gain_ratio = -1
-        best_candidate_split = None
-        X = np.vstack((node.training_examples, X_from_oracle))
-        y = np.concatenate((node.training_predictions, y_from_oracle))
-
-        for candidate in F_N:
-            gain_ratio = self._calculate_gain_ratio(X, y, [candidate])
-
-            if gain_ratio > best_gain_ratio:
-                best_gain_ratio = gain_ratio
-                best_candidate_split = [candidate]
-
-        return best_candidate_split, best_gain_ratio
-                
-    def _calculate_best_m_of_n_split(self, best_binary_split, F_N, node, X_from_oracle, y_from_oracle):
-        X = np.vstack((node.training_examples, X_from_oracle))
-        y = np.concatenate((node.training_predictions, y_from_oracle))
-
-        # Define terms
-        best_m = best_binary_split.m # Corresponds to m
-        current_number_of_conditions = len(best_binary_split.conditions) #Corresponds to len(n). Should be 1 when from binary split.
-        best_gain = best_binary_split.gain_ratio
-        best_conditions = best_binary_split.conditions
-
-        # Include a new condition until we reach maximum allowance of conditions
-        while current_number_of_conditions < self.max_conditions:
-            
-            # Increase threshold m. 
-            for m in range(1, current_number_of_conditions + 1):
-
-                # If the current structure m-of-current_number_of_conditions is less than max number of children.
-                # Go to method defintion for explaination of this step.
-                if self._get_child_count_for_MofN_structure(m, current_number_of_conditions) < self.max_children:
-
-                    # If we are here, we are allowed to use this structure.
-                    # For every candidate split that is not already selected
-                    for candidate in F_N:
-                        current_conditions = best_binary_split.conditions + [candidate]
-                        current_gain = self._calculate_gain_ratio(X, y, current_conditions)
-                        
-                        # If the current configuration is better, save it as the best.
-                        if current_gain > best_gain:
-                            best_gain = current_gain
-                            best_conditions = current_conditions
-                            best_m = m
-
-            current_number_of_conditions += 1
-
-        return MofN(best_m, best_conditions, best_gain)
-            
-    def _get_child_count_for_MofN_structure(self, m, n):
-        # From statistics, we are familiar with nCr, which is how many combinations of n items where r is selected, 
-        # when order does not matter and repetitions are not allowed. We can use this here to calculate how 
-        # many children a certain m-of-n structure will produce. Note that now, n is a number and not a condition for this calculation.
-        # In our case, it will be nCm. For instance a 2-of-{A, B, C} will be a 2-of-3 structure with outcomes {A, B}, {A, C} and {B, C}
-        # The number of children can be calculated: nCm = (n!) / ((n-m)! * m!)
-        return ((math.factorial(n)) / (math.factorial(n-m) * math.factorial(m)))
-    
     def _identify_candidate_splits(self, X):
         """
         Identify all possible candidate splits for all features in the input feature matrix X.
@@ -398,7 +411,101 @@ class TREPAN:
                 candidate_splits.append((col, round(threshold, 2), '>'))
 
         return candidate_splits
-        
+
+    def _get_best_binary_split(self, F_N, node, X_from_oracle, y_from_oracle):
+        best_gain_ratio = -1
+        best_candidate_split = None
+        X = np.vstack((node.training_examples, X_from_oracle))
+        y = np.concatenate((node.training_predictions, y_from_oracle))
+
+        for candidate in F_N:
+            gain_ratio = self._calculate_gain_ratio(X, y, [candidate])
+
+            if gain_ratio > best_gain_ratio:
+                best_gain_ratio = gain_ratio
+                best_candidate_split = [candidate]
+
+        return best_candidate_split, best_gain_ratio
+                
+    def _calculate_best_m_of_n_split(self, best_binary_split, F_N, node, X_from_oracle, y_from_oracle):
+        X = np.vstack((node.training_examples, X_from_oracle))
+        y = np.concatenate((node.training_predictions, y_from_oracle))
+
+        best_m_of_n_split = best_binary_split
+        current_conditions = list(best_binary_split.conditions)
+
+        while len(current_conditions) < self.max_conditions:
+            # Find the best condition to add from F_N
+            best_new_condition = None
+            best_gain_ratio = 0
+            best_m = best_m_of_n_split.m
+
+            for candidate in F_N:
+                if candidate not in current_conditions:
+                    # Try adding the candidate to the conditions
+                    extended_conditions = current_conditions + [candidate]
+
+                    # Calculate gain ratio for m-of-n+1
+                    gain_ratio_m_of_n_plus_1 = self._calculate_gain_ratio_m_of_n(X, y, extended_conditions, best_m)
+                    # Calculate gain ratio for m+1-of-n+1
+                    gain_ratio_m_plus_1_of_n_plus_1 = self._calculate_gain_ratio_m_of_n(X, y, extended_conditions, best_m + 1)
+
+                    if gain_ratio_m_plus_1_of_n_plus_1 > gain_ratio_m_of_n_plus_1:
+                        candidate_gain_ratio = gain_ratio_m_plus_1_of_n_plus_1
+                        candidate_m = best_m + 1
+                    else:
+                        candidate_gain_ratio = gain_ratio_m_of_n_plus_1
+                        candidate_m = best_m
+
+                    if candidate_gain_ratio > best_gain_ratio:
+                        best_new_condition = candidate
+                        best_gain_ratio = candidate_gain_ratio
+                        best_m = candidate_m
+
+            # Add the best new condition to the current conditions
+            if best_new_condition is not None:
+                current_conditions.append(best_new_condition)
+
+                # Update the best_m_of_n_split with the new conditions and gain ratio
+                if best_gain_ratio > best_m_of_n_split.gain_ratio:
+                    best_m_of_n_split = MofN(best_m, current_conditions, best_gain_ratio)
+
+            # Break the loop if the gain ratio is 1.0 or if the number of children exceeds the maximum allowed
+            if best_gain_ratio == 1.0 or self._get_child_count_for_MofN_structure(best_m, len(current_conditions)) >= self.max_children:
+                break
+
+        return best_m_of_n_split
+
+    def _apply_constraints(self, constraints, X):
+        # Create a boolean mask with the same length as the number of instances in X, initialized with True values
+        mask = np.ones(len(X), dtype=bool)
+
+        # Iterate over each constraint in the list of constraints
+        for col, threshold, direction in constraints:
+            if direction == '<=':
+                # Create a boolean mask for instances where the feature value at column 'col' is less than or equal to the threshold
+                current_mask = X[:, col] <= threshold
+            
+            elif direction == '>':
+                current_mask = X[:, col] > threshold
+            
+            else:
+                raise SyntaxError("Wrong syntax for direction in tuple. Should be '<=' or '>'.")
+            
+            # Apply the current mask to the main mask using the AND operation
+            mask = mask & current_mask
+
+        # Return the mask
+        return mask
+
+    def _get_child_count_for_MofN_structure(self, m, n):
+        # From statistics, we are familiar with nCr, which is how many combinations of n items where r is selected, 
+        # when order does not matter and repetitions are not allowed. We can use this here to calculate how 
+        # many children a certain m-of-n structure will produce. Note that now, n is a number and not a condition for this calculation.
+        # In our case, it will be nCm. For instance a 2-of-{A, B, C} will be a 2-of-3 structure with outcomes {A, B}, {A, C} and {B, C}
+        # The number of children can be calculated: nCm = (n!) / ((n-m)! * m!)
+        return ((math.factorial(n)) / (math.factorial(n-m) * math.factorial(m)))
+    
     def _get_best_scoring_node_in_queue(self, queue):
         best_score = 0
         best_node = None
@@ -416,6 +523,8 @@ class TREPAN:
     def _calculate_node_score(self, node):
         """
         Calculate the score for a given node.
+        
+        !! This doesnt work yet !!
 
         Parameters
         ----------
@@ -501,28 +610,6 @@ class TREPAN:
 
         reach = num_instances_satisfying_constraints / num_instances
         return reach
-
-    def _apply_constraints(self, constraints, X):
-        # Create a boolean mask with the same length as the number of instances in X, initialized with True values
-        mask = np.ones(len(X), dtype=bool)
-
-        # Iterate over each constraint in the list of constraints
-        for col, threshold, direction in constraints:
-            if direction == '<=':
-                # Create a boolean mask for instances where the feature value at column 'col' is less than or equal to the threshold
-                current_mask = X[:, col] <= threshold
-            
-            elif direction == '>':
-                current_mask = X[:, col] > threshold
-            
-            else:
-                raise SyntaxError("Wrong syntax for direction in tuple. Should be '<=' or '>'.")
-            
-            # Apply the current mask to the main mask using the AND operation
-            mask = mask & current_mask
-
-        # Return the mask
-        return mask
     
     def _most_common_class_proportion(self, X_from_oracle, training_examples_c, training_predictions_c):
             # Predict the targets on the instances
@@ -570,13 +657,42 @@ class TREPAN:
 
         return filtered_splits
 
+    def _satisfies_m_of_n_conditions(self, constraints, instance, m):
+        """
+        Check if a given instance satisfies the m-of-n conditions of a specific node.
+
+        Args:
+        constraints (list of tuples): List of constraints in the form (feature_idx, threshold, direction).
+        instance (numpy array): The instance we want to check against the constraints.
+        m (int): The minimum number of conditions that must be satisfied.
+
+        Returns:
+        bool: True if the instance satisfies the m-of-n conditions, False otherwise.
+        """
+
+        satisfied_conditions_count = 0
+
+        for constraint in constraints:
+            feature_idx, threshold, direction = constraint
+
+            if direction == "<=":
+                if instance[feature_idx] <= threshold:
+                    satisfied_conditions_count += 1
+            elif direction == ">":
+                if instance[feature_idx] > threshold:
+                    satisfied_conditions_count += 1
+
+            if satisfied_conditions_count >= m:
+                return True
+
+        return False
+
     def _calculate_gain_ratio(self, X, y, constraints):
         
         if not constraints:
             mask = np.ones(len(X), dtype=bool)
         else: 
             mask = self._apply_constraints(constraints, X)
-        
         
         y_entropy = self._calculate_entropy(y)
 
@@ -603,6 +719,48 @@ class TREPAN:
 
         return gain_ratio
 
+    def _calculate_gain_ratio_m_of_n(self, X, y, new_proposed_conditions, m):
+        # Calculate the entropy of the parent node before splitting
+        parent_entropy = self._calculate_entropy(y)
+
+        weighted_child_entropy_sum = 0
+        intrinsic_value_sum = 0
+
+        # Iterate over each logical outcome of the m-of-n split using itertools.combinations
+        for outcome in combinations(new_proposed_conditions, m):
+            new_constraints = list(outcome)
+
+            # Apply the constraints to the dataset
+            child_mask = self._apply_constraints(new_constraints, X)
+            child_examples = X[child_mask]
+            child_predictions = y[child_mask]
+
+            # Calculate the entropy of the resulting child node
+            child_entropy = self._calculate_entropy(child_predictions)
+
+            # Calculate the proportion of instances that fall into the child node
+            child_proportion = len(child_examples) / len(X)
+
+            # Update the weighted child entropy sum and intrinsic value sum
+            weighted_child_entropy_sum += child_proportion * child_entropy
+            intrinsic_value_sum += self._calculate_intrinsic_value(child_predictions)
+
+        # Calculate the information gain and gain ratio
+        information_gain = parent_entropy - weighted_child_entropy_sum
+        gain_ratio = information_gain / intrinsic_value_sum
+
+        return gain_ratio
+
+    def _calculate_intrinsic_value(self, y):
+        num_instances = len(y)
+        unique_labels, label_counts = np.unique(y, return_counts=True)
+        proportions = label_counts / num_instances
+        
+        # Calculate the intrinsic value (split information)
+        intrinsic_value = -np.sum(proportions * np.log2(proportions))
+        
+        return intrinsic_value
+
     def _calculate_entropy(self, y):
             num_instances = len(y)
             unique_labels, label_counts = np.unique(y, return_counts=True)
@@ -610,7 +768,6 @@ class TREPAN:
             entropy = -np.sum(probabilities * np.log2(probabilities))
             return entropy
     
-
     def print_tree(self, node=None, level=0):
         if node is None:
             node = self.root
