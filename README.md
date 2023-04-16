@@ -14,6 +14,7 @@ To implement:
 - Real stopping criteria with prob(p_c < (1 - epsilon)) < delta. Now we only have a cutoff value of the on p_c.
 
 Known issues:
+- m-of-n search only consideres 1-of-1 and 1-of-2 due to a bug. Currently working on this.
 - Fidelity function doesnt compare tree to neural network, but neural network to neural network. Always returns max score of 1. Resulting in a FIFO expansion and not best first.
 
 To run:
