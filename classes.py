@@ -32,21 +32,20 @@ class IrisNN(nn.Module):
         iris_nn.fit(X, y, epochs=100, batch_size=16, lr=0.01)
         y_pred = iris_nn.predict(X)
     """
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, output_dim):
         super(IrisNN, self).__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc1 = nn.Linear(in_features=input_dim, out_features=16)
+        self.fc2 = nn.Linear(in_features=16, out_features=12)
         self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(hidden_dim, output_dim)
-        self.softmax = nn.Softmax(dim=1)
-
+        self.output = nn.Linear(in_features=12, out_features=output_dim)
+ 
     def forward(self, x):
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        x = self.softmax(x)
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.output(x)
         return x
 
-    def fit(self, X, y, epochs=50, batch_size=16, lr=0.01): 
+    def fit(self, X, y, epochs=10, batch_size=20, lr=0.01): 
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
@@ -149,7 +148,7 @@ class Oracle:
             kdes.append(kde)
         return kdes
 
-    def generate_instances(self, constraints, num_instances):
+    def generate_instances(self, hard_constraints, current_split, num_instances):
         new_instances = []
         instances_created = 0
 
@@ -163,23 +162,50 @@ class Oracle:
 
             # Generate continuous features
             for col, kde in enumerate(self.continuous_kdes):
-                
                 value = round(kde.sample()[0][0], 1)
                 new_instance.append(value)
 
             # Check if the generated instance satisfies all the constraints
             satisfies_constraints = True
-            if constraints:
-                for feature_idx, threshold, direction in constraints:
-                    if direction == ">" and new_instance[feature_idx] <= threshold:
+
+            if hard_constraints:
+                for constraint in hard_constraints:
+                    m = constraint.m
+                    conditions = constraint.conditions
+                    satisfied_conditions_count = 0
+
+                    for feature_idx, threshold, direction in conditions:
+                        if direction == "<=" and new_instance[feature_idx] <= threshold:
+                            satisfied_conditions_count += 1
+                        if direction == ">" and new_instance[feature_idx] > threshold:
+                            satisfied_conditions_count += 1
+
+                    if constraint.satisfied and satisfied_conditions_count < m:
                         satisfies_constraints = False
                         break
-                    if direction == "<=" and new_instance[feature_idx] > threshold:
+                    elif not constraint.satisfied and satisfied_conditions_count >= m:
                         satisfies_constraints = False
                         break
 
-            # If the instance satisfies all constraints, add it to new_instances
-            if satisfies_constraints:
+            if satisfies_constraints and current_split:
+                # Check if the generated instance satisfies the current split
+                m = current_split.m
+                conditions = current_split.conditions
+                satisfied_conditions_count = 0
+
+                for feature_idx, threshold, direction in conditions:
+                    if direction == "<=" and new_instance[feature_idx] <= threshold:
+                        satisfied_conditions_count += 1
+                    if direction == ">" and new_instance[feature_idx] > threshold:
+                        satisfied_conditions_count += 1
+
+                if current_split.satisfied and satisfied_conditions_count >= m:
+                    new_instances.append(new_instance)
+                    instances_created += 1
+                elif not current_split.satisfied and satisfied_conditions_count < m:
+                    new_instances.append(new_instance)
+                    instances_created += 1
+            elif satisfies_constraints and not current_split:
                 new_instances.append(new_instance)
                 instances_created += 1
 
@@ -191,10 +217,10 @@ class Node:
         self.leaf = leaf
         self.training_examples = training_examples
         self.training_predictions = training_predictions
-        self.constraints = constraints
+        self.hard_constraints = constraints
+        self.split = None
         self.children = []
         self.parent = parent
-        self.split = None
         self.label = None
         self.score = 0
 
@@ -207,7 +233,7 @@ class MofN:
         self.m = m
         self.conditions = conditions
         self.gain_ratio = gain_ratio
-        self.outcomes = None
+        self.satisfied = True
 
 # Define the TREPAN class
 class TREPAN:
@@ -223,6 +249,7 @@ class TREPAN:
         self.max_children = max_children
         self.current_amount_of_nodes = 0
         self.cutoff = cutoff
+        self.S_min = len(self.X_true) // 10
         self.number_of_instances_for_generation = num_of_instances
     
     def predict(self, X):
@@ -255,7 +282,7 @@ class TREPAN:
             # If the current node is an internal node, traverse its children based on the m-of-n conditions
             else:
                 for child in node.children:
-                    if self._satisfies_m_of_n_conditions(child.constraints, instance, node.split.m):
+                    if self._satisfies_m_of_n_conditions(child.hard_constraints, instance):
                         return traverse_tree(child, instance)
 
 
@@ -310,10 +337,10 @@ class TREPAN:
             queue.remove(N)
 
             # 2. Define F_N, which is the subset of all candidate splits which satisfies the current constraints
-            F_N = self._extract_subset_of_candidate_splits(F, N.constraints)
+            F_N = self._extract_subset_of_candidate_splits(F, N.hard_constraints)
 
             # 3. Query the oracle to get more instances
-            X_from_oracle = self.oracle.generate_instances(N.constraints, num_instances = self.number_of_instances_for_generation - (len(N.training_examples)))
+            X_from_oracle = self.oracle.generate_instances(N.hard_constraints, None, num_instances = self.number_of_instances_for_generation - (len(N.training_examples)))
             y_from_oracle = self.oracle.model.predict(X_from_oracle)
 
             # 4. Calculate gain ratio on all splits in F_N using gain ratio criterion
@@ -337,25 +364,34 @@ class TREPAN:
             N.leaf = False
             N.split = best_split
 
-            # 9. Identify all logical outcomes
-            best_split.outcomes = combinations(best_split.conditions, best_split.m)
 
             # For every logical outcome of the m-of-n, we create a child node
-            for new_constraints_c in best_split.outcomes:
+            #for new_constraints_c in best_split.outcomes:
+            for split_satisfied in [True, False]:
                 
                 # 11. Append constraints from parent node N
-                constraints_c = deepcopy(N.constraints) + deepcopy(list(new_constraints_c))
+                best_split.satisfied = split_satisfied
+                constraints_c = deepcopy(N.hard_constraints) + deepcopy([best_split])
 
                 # 12. Update original training data using the new constraints
-                child_mask = self._apply_constraints(constraints_c, N.training_examples)
-                training_examples_c = deepcopy(N.training_examples[child_mask])
-                training_predictions_c = deepcopy(N.training_predictions[child_mask])
+                child_mask = self._apply_m_of_n_constraints(constraints_c, N.training_examples)
+
+                if split_satisfied:
+                    training_examples_c = deepcopy(N.training_examples[child_mask])
+                    training_predictions_c = deepcopy(N.training_predictions[child_mask])
+                else:
+                    training_examples_c = deepcopy(N.training_examples[~child_mask])
+                    training_predictions_c = deepcopy(N.training_predictions[~child_mask])
                 
                 # 13. Generate new set of instances for evaluation. The number is the defined number in init for evaluation minus the number from training examples.
-                instances_for_evaluation = self.oracle.generate_instances(constraints_c, self.number_of_instances_for_generation - (len(training_examples_c)))
-                
+                if len(training_examples_c) < self.S_min:
+                    instances_for_evaluation = self.oracle.generate_instances(N.hard_constraints, best_split, self.S_min - (len(training_examples_c)))
+                else:
+                    instances_for_evaluation = np.array([])
+
                 # 14. Create a new child node as leaf node, define it as child of N, and add to node count (for stopping criteria).
                 C = Node(training_examples_c, training_predictions_c, constraints_c, True, parent=N)
+ 
                 N.children.append(C)
                 self.current_amount_of_nodes += 1
 
@@ -369,6 +405,11 @@ class TREPAN:
                 # Otherwise, append child node to the queue.
                 else:
                     queue.append(C)
+
+        if queue:
+            for node in queue:
+                most_common_class, p_c = self._most_common_class_proportion(np.array([]), node.training_examples, node.training_predictions)
+                node.label = most_common_class
 
     def _identify_candidate_splits(self, X):
         """
@@ -434,14 +475,20 @@ class TREPAN:
         best_m_of_n_split = best_binary_split
         current_conditions = list(best_binary_split.conditions)
 
+        def condition_exists(conditions, condition):
+            for cond in conditions:
+                if cond[0] == condition[0] and cond[2] == condition[2]:
+                    return True
+            return False
+    
         while len(current_conditions) < self.max_conditions:
             # Find the best condition to add from F_N
             best_new_condition = None
             best_gain_ratio = 0
-            best_m = best_m_of_n_split.m
+            best_m = deepcopy(best_m_of_n_split.m)
 
             for candidate in F_N:
-                if candidate not in current_conditions:
+                if candidate not in current_conditions and not condition_exists(current_conditions, candidate):
                     # Try adding the candidate to the conditions
                     extended_conditions = current_conditions + [candidate]
 
@@ -457,7 +504,12 @@ class TREPAN:
                         candidate_gain_ratio = gain_ratio_m_of_n_plus_1
                         candidate_m = best_m
 
-                    if candidate_gain_ratio > best_gain_ratio:
+                    #decimal error fix. COuld be 1.00000002 for instance.
+                    if candidate_gain_ratio > 1:
+                        candidate_gain_ratio = 1
+
+                    # To make sure that the added complexity added by increasing the search has some substantial increase in gain, we add a minimum increase of 0.01.
+                    if (candidate_gain_ratio - 0.01) > best_gain_ratio:
                         best_new_condition = candidate
                         best_gain_ratio = candidate_gain_ratio
                         best_m = candidate_m
@@ -497,6 +549,30 @@ class TREPAN:
 
         # Return the mask
         return mask
+    
+    def _apply_m_of_n_constraints(self, mofn_split_list, X):
+        overall_mask = np.ones(len(X), dtype=bool)
+
+        # Iterate over each MofN split object in the list
+        for mofn_split in mofn_split_list:
+            m = mofn_split.m
+            conditions = mofn_split.conditions
+
+            # Initialize an array to count the number of satisfied conditions for each instance
+            satisfied_conditions_count = np.zeros(len(X), dtype=int)
+
+            for feature_idx, threshold_value, less_than_or_greater in conditions:
+                if less_than_or_greater == '<=':
+                    satisfied_conditions_count += (X[:, feature_idx] <= threshold_value)
+                else:
+                    satisfied_conditions_count += (X[:, feature_idx] > threshold_value)
+
+            # Get the mask for instances satisfying the m-of-n split
+            m_of_n_mask = satisfied_conditions_count >= m
+            overall_mask &= m_of_n_mask
+
+        return overall_mask
+
 
     def _get_child_count_for_MofN_structure(self, m, n):
         # From statistics, we are familiar with nCr, which is how many combinations of n items where r is selected, 
@@ -507,7 +583,7 @@ class TREPAN:
         return ((math.factorial(n)) / (math.factorial(n-m) * math.factorial(m)))
     
     def _get_best_scoring_node_in_queue(self, queue):
-        best_score = 0
+        best_score = float('-inf')
         best_node = None
 
         for node in queue:
@@ -541,7 +617,7 @@ class TREPAN:
             The node score.
         """
         # Apply the constraints of the node
-        mask = self._apply_constraints(node.constraints, node.training_examples)
+        mask = self._apply_m_of_n_constraints(node.hard_constraints, node.training_examples)
 
         # Apply mask
         X_filtered = node.training_examples[mask]
@@ -552,10 +628,14 @@ class TREPAN:
         fidelity = self._calculate_fidelity(y_filtered, y_pred)
 
         # Calculate the reach
-        reach = self._calculate_reach(node.constraints)
+        reach = self._calculate_reach(node.hard_constraints)
 
         # Calculate the node score
         score = reach * fidelity
+
+        if math.isnan(score):
+            return 0
+        
         return score
 
     def _calculate_fidelity(self, y_true, y_pred):
@@ -601,22 +681,44 @@ class TREPAN:
 
         for instance in self.X_true:
             satisfies_constraints = True
-            for feature_index, threshold, direction in constraints:
-                if (direction == 'less' and not (instance[feature_index] <= threshold)) or (direction == 'greater' and not (instance[feature_index] > threshold)):
-                    satisfies_constraints = False
-                    break
+            for constraint in constraints:
+                    m = constraint.m
+                    conditions = constraint.conditions
+                    satisfied_conditions_count = 0
+
+                    for feature_idx, threshold, direction in conditions:
+                        if direction == "<=" and instance[feature_idx] <= threshold:
+                            satisfied_conditions_count += 1
+                            #satisfies_constraints = False
+                            #break
+                        if direction == ">" and instance[feature_idx] > threshold:
+                            satisfied_conditions_count += 1
+                            #satisfies_constraints = False
+                            #break
+                    
+                    if satisfied_conditions_count < m:
+                        satisfies_constraints = False
+                        break
+
             if satisfies_constraints:
-                num_instances_satisfying_constraints += 1
+                    num_instances_satisfying_constraints += 1
 
         reach = num_instances_satisfying_constraints / num_instances
         return reach
     
     def _most_common_class_proportion(self, X_from_oracle, training_examples_c, training_predictions_c):
-            # Predict the targets on the instances
-        y_pred = self.oracle.model.predict(X_from_oracle)
+        # Predict the targets on the instances
+        if X_from_oracle.size > 0:
+            y_pred = self.oracle.model.predict(X_from_oracle)
+            y = np.concatenate((training_predictions_c, y_pred))
+        else:
+            y = training_predictions_c    
+                #y = training_predictions_c
+        #while len(y) < self.S_min:
 
-        y = np.concatenate((training_predictions_c, y_pred))
-
+        if y.size == 0:
+            return None
+        
         # Count the occurrences of each class
         unique_classes, counts = np.unique(y, return_counts=True)
 
@@ -634,7 +736,7 @@ class TREPAN:
         Extracts the subset of candidate splits that satisfy the list of constraints.
 
         :param F: list of candidate splits (tuples of structure (feature_idx, threshold))
-        :param constraints: list of constraints (tuples of type (feature_idx, threshold, direction))
+        :param constraints: list of MofN constraints
         :return: list of candidate splits that satisfy the constraints
         """
 
@@ -644,48 +746,56 @@ class TREPAN:
         def satisfies_constraints(candidate_split):
             feature_idx, threshold, direction = candidate_split
 
-            for constraint_feature_idx, constraint_threshold, direction in constraints:
-                if feature_idx == constraint_feature_idx:
-                    if direction == "<=" and threshold > constraint_threshold:
-                        return False
-                    elif direction == ">" and threshold <= constraint_threshold:
-                        return False
+            for constraint in constraints:
+                constraint_conditions = constraint.conditions
+
+                for constraint_feature_idx, constraint_threshold, constraint_direction in constraint_conditions:
+                    if feature_idx == constraint_feature_idx:
+                        if constraint_direction == "<=" and threshold > constraint_threshold:
+                            return False
+                        elif constraint_direction == ">" and threshold <= constraint_threshold:
+                            return False
 
             return True
 
-        filtered_splits = [split for split in F if satisfies_constraints(split)]
+        result = [candidate_split for candidate_split in F if satisfies_constraints(candidate_split)]
+        return result
 
-        return filtered_splits
-
-    def _satisfies_m_of_n_conditions(self, constraints, instance, m):
+    def _satisfies_m_of_n_conditions(self, mofn_constraints, instance):
         """
         Check if a given instance satisfies the m-of-n conditions of a specific node.
 
         Args:
-        constraints (list of tuples): List of constraints in the form (feature_idx, threshold, direction).
+        mofn_constraints (list of MofN objects): List of MofN constraints.
         instance (numpy array): The instance we want to check against the constraints.
-        m (int): The minimum number of conditions that must be satisfied.
 
         Returns:
         bool: True if the instance satisfies the m-of-n conditions, False otherwise.
         """
 
-        satisfied_conditions_count = 0
+        all_constraints_satisfied = True
 
-        for constraint in constraints:
-            feature_idx, threshold, direction = constraint
+        for mofn_constraint in mofn_constraints:
+            m = mofn_constraint.m
+            conditions = mofn_constraint.conditions
+            satisfied_conditions_count = 0
 
-            if direction == "<=":
-                if instance[feature_idx] <= threshold:
-                    satisfied_conditions_count += 1
-            elif direction == ">":
-                if instance[feature_idx] > threshold:
-                    satisfied_conditions_count += 1
+            for feature_idx, threshold, direction in conditions:
+                if direction == "<=":
+                    if instance[feature_idx] <= threshold:
+                        satisfied_conditions_count += 1
+                elif direction == ">":
+                    if instance[feature_idx] > threshold:
+                        satisfied_conditions_count += 1
 
             if satisfied_conditions_count >= m:
-                return True
+                constraint_satisfied = mofn_constraint.satisfied
+            else:
+                constraint_satisfied = not mofn_constraint.satisfied
 
-        return False
+            all_constraints_satisfied = all_constraints_satisfied and constraint_satisfied
+
+        return all_constraints_satisfied
 
     def _calculate_gain_ratio(self, X, y, constraints):
         
@@ -723,33 +833,39 @@ class TREPAN:
         # Calculate the entropy of the parent node before splitting
         parent_entropy = self._calculate_entropy(y)
 
-        weighted_child_entropy_sum = 0
-        intrinsic_value_sum = 0
+        gain_ratios = []
 
         # Iterate over each logical outcome of the m-of-n split using itertools.combinations
         for outcome in combinations(new_proposed_conditions, m):
             new_constraints = list(outcome)
+            weighted_entropy = 0
+            intrinsic_value = 0
 
             # Apply the constraints to the dataset
             child_mask = self._apply_constraints(new_constraints, X)
             child_examples = X[child_mask]
             child_predictions = y[child_mask]
+            not_applicable = X[~child_mask]
+            not_applicable_predictions = y[~child_mask]
 
             # Calculate the entropy of the resulting child node
             child_entropy = self._calculate_entropy(child_predictions)
+            not_child_entropy = self._calculate_entropy(not_applicable_predictions)
 
             # Calculate the proportion of instances that fall into the child node
             child_proportion = len(child_examples) / len(X)
 
             # Update the weighted child entropy sum and intrinsic value sum
-            weighted_child_entropy_sum += child_proportion * child_entropy
-            intrinsic_value_sum += self._calculate_intrinsic_value(child_predictions)
+            weighted_entropy += ((child_proportion * child_entropy) + ((1 - child_proportion) * not_child_entropy))
+            intrinsic_value -= ((child_proportion * np.log2(child_proportion)) + ((1 - child_proportion) * np.log2(1 - child_proportion)))
+        
+            # Calculate the information gain and gain ratio
+            information_gain = parent_entropy - weighted_entropy
+            gain_ratio = information_gain / intrinsic_value
+        
+            gain_ratios.append(gain_ratio)
 
-        # Calculate the information gain and gain ratio
-        information_gain = parent_entropy - weighted_child_entropy_sum
-        gain_ratio = information_gain / intrinsic_value_sum
-
-        return gain_ratio
+        return np.mean(gain_ratios)
 
     def _calculate_intrinsic_value(self, y):
         num_instances = len(y)
@@ -774,7 +890,7 @@ class TREPAN:
 
         # Print the current node
         if node.leaf:
-            print("  " * level + f"Leaf (Class: {node.label}, Constraints: {[condition for condition in node.constraints]})")
+            print("  " * level + f"Leaf (Class: {node.label}, Constraints: {[condition for condition in node.hard_constraints]})")
         else:
             print("  " * level + f"Node (Split: {node.split.m}-of-{[condition for condition in node.split.conditions]}, Gain Ratio: {node.split.gain_ratio:.2f})")
 
@@ -792,7 +908,7 @@ class TREPAN:
 
         node_id = f"{id(node)}"
         if node.leaf:
-            label = f"Leaf\n(Class: {node.label},\nConstraints: {[condition for condition in node.constraints]})"
+            label = f"Leaf\n(Class: {node.label},\nConstraints: {[condition for condition in node.hard_constraints]})"
         else:
             label = f"Node\n(Split: {node.split.m}-of-{[condition for condition in node.split.conditions]},\nGain Ratio: {node.split.gain_ratio:.2f})"
 
