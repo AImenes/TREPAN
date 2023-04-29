@@ -890,13 +890,19 @@ class TREPAN:
 
         # Print the current node
         if node.leaf:
-            print("  " * level + f"Leaf (Class: {node.label}, Constraints: {[condition for condition in node.hard_constraints]})")
+            print("  " * level + f"Leaf (Class: {node.label}, Constraints: ", end="")
+            for mofn in node.hard_constraints:
+                satisfaction = "Satisfied" if mofn.satisfied else "Not Satisfied"
+                print(f"{satisfaction} {mofn.m}-of-{[condition for condition in mofn.conditions]}", end=", ")
+            print(")")
+
         else:
             print("  " * level + f"Node (Split: {node.split.m}-of-{[condition for condition in node.split.conditions]}, Gain Ratio: {node.split.gain_ratio:.2f})")
 
         # Recursively print the children
         for child in node.children:
             self.print_tree(child, level + 1)
+
 
     def to_graphviz(self, node=None, graph=None, parent=None):
         if node is None:
@@ -908,9 +914,10 @@ class TREPAN:
 
         node_id = f"{id(node)}"
         if node.leaf:
-            label = f"Leaf\n(Class: {node.label},\nConstraints: {[condition for condition in node.hard_constraints]})"
+            constraints_str = ',\n'.join([f"{('Satisfied' if mofn.satisfied else 'Not Satisfied')} {mofn.m}-of-\n{[condition for condition in mofn.conditions]}" for mofn in node.hard_constraints])
+            label = f"Leaf\n(Class: {node.label},\nConstraints:\n{constraints_str})"
         else:
-            label = f"Node\n(Split: {node.split.m}-of-{[condition for condition in node.split.conditions]},\nGain Ratio: {node.split.gain_ratio:.2f})"
+            label = f"Node\n(Split: {node.split.m}-of-\n{[condition for condition in node.split.conditions]},\nGain Ratio: {node.split.gain_ratio:.2f})"
 
         graph.node(node_id, label=label)
 

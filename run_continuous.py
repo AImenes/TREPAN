@@ -61,3 +61,7 @@ print("Accuracy Score:", accuracy)
 confusion_mat = confusion_matrix(y_test, y_test_pred)
 print("Confusion Matrix:")
 print(confusion_mat)
+
+#Fidelity
+accuracy = accuracy_score(y_pred, y_test_pred)
+print("Fidelity Score:", accuracy)
