@@ -376,6 +376,11 @@ class TREPAN:
                 # 12. Update original training data using the new constraints
                 child_mask = self._apply_m_of_n_constraints(constraints_c, N.training_examples)
 
+                # if there indeed is a split, and not one side is empty
+                if not (True in child_mask and False in child_mask):
+                    N.leaf = True
+                    break    
+
                 if split_satisfied:
                     training_examples_c = deepcopy(N.training_examples[child_mask])
                     training_predictions_c = deepcopy(N.training_predictions[child_mask])
@@ -383,10 +388,6 @@ class TREPAN:
                     training_examples_c = deepcopy(N.training_examples[~child_mask])
                     training_predictions_c = deepcopy(N.training_predictions[~child_mask])
 
-                if training_examples_c.size == 0:
-                    #If one side of the split has 0 original instances
-                    N.leaf = True
-                    break
                 
                 # 13. Generate new set of instances for evaluation. The number is the defined number in init for evaluation minus the number from training examples.
                 if len(training_examples_c) < self.S_min:
