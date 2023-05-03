@@ -382,6 +382,11 @@ class TREPAN:
                 else:
                     training_examples_c = deepcopy(N.training_examples[~child_mask])
                     training_predictions_c = deepcopy(N.training_predictions[~child_mask])
+
+                if training_examples_c.size == 0:
+                    #If one side of the split has 0 original instances
+                    N.leaf = True
+                    break
                 
                 # 13. Generate new set of instances for evaluation. The number is the defined number in init for evaluation minus the number from training examples.
                 if len(training_examples_c) < self.S_min:
@@ -390,21 +395,23 @@ class TREPAN:
                     instances_for_evaluation = np.array([])
 
                 # 14. Create a new child node as leaf node, define it as child of N, and add to node count (for stopping criteria).
-                C = Node(training_examples_c, training_predictions_c, constraints_c, True, parent=N)
- 
-                N.children.append(C)
-                self.current_amount_of_nodes += 1
+                if training_examples_c.size != 0:
+                    C = Node(training_examples_c, training_predictions_c, constraints_c, True, parent=N)
+    
+                    N.children.append(C)
+                    self.current_amount_of_nodes += 1
 
-                # 15. Get the most common class prediction using the oracle
-                most_common_class, p_c = self._most_common_class_proportion(instances_for_evaluation, training_examples_c, training_predictions_c)
-                
-                # 16. If proportion is larger than some cut-off value, let it be a leaf and assign target class
-                if p_c >= self.cutoff:
-                    C.label = most_common_class
-                
-                # Otherwise, append child node to the queue.
-                else:
-                    queue.append(C)
+                    # 15. Get the most common class prediction using the oracle
+                    most_common_class, p_c = self._most_common_class_proportion(instances_for_evaluation, training_examples_c, training_predictions_c)
+                    
+                    # 16. If proportion is larger than some cut-off value, let it be a leaf and assign target class
+                    if p_c >= self.cutoff:
+                        C.label = most_common_class
+                    
+                    # Otherwise, append child node to the queue.
+                    else:
+                        C.label = most_common_class
+                        queue.append(C)
 
         if queue:
             for node in queue:

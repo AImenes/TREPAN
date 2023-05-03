@@ -49,6 +49,7 @@ trepan.fit()
 trepan.print_tree()
 graph = trepan.to_graphviz()
 graph.render("trepan_tree", cleanup=True)
+print("Image successfully generated")
 
 # Predictions
 y_test_pred = trepan.predict(X_test)
