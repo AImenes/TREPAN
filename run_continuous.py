@@ -5,7 +5,6 @@ from classes import *
 import os
 import torch
 
-
 #Train ANN to represent with TREPAN
 iris = load_iris()
 X = iris.data
@@ -32,7 +31,7 @@ y_pred = model.predict(X_test)
 
 # Calculate the accuracy
 accuracy = accuracy_score(y_test, y_pred)
-print(f"Accuracy: {accuracy:.2f}")
+print(f"The ANN has an accuracy of: {accuracy:.2f}")
 
 # TREPAN
 oracle = Oracle(model, X_train, y_train)
@@ -49,20 +48,20 @@ trepan.fit()
 trepan.print_tree()
 graph = trepan.to_graphviz()
 graph.render("trepan_tree", cleanup=True)
-print("Image successfully generated")
+print("Image successfully generated and placed in the working directory.")
 
 # Predictions
 y_test_pred = trepan.predict(X_test)
 
 # Accuracy
 accuracy = accuracy_score(y_test, y_test_pred)
-print("Accuracy Score:", accuracy)
+print("Accuracy Score of TREPAN to original test set:\t", accuracy)
 
 # Confusion matrix
 confusion_mat = confusion_matrix(y_test, y_test_pred)
-print("Confusion Matrix:")
+print("Confusion Matrix to original test set:\t")
 print(confusion_mat)
 
 #Fidelity
 accuracy = accuracy_score(y_pred, y_test_pred)
-print("Fidelity Score:", accuracy)
+print("Fidelity Score to our Oracle model:\t", accuracy)

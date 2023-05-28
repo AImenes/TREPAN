@@ -356,9 +356,9 @@ class TREPAN:
             # 2. Define F_N, which is the subset of all candidate splits which satisfies the current constraints
             F_N = self._extract_subset_of_candidate_splits(F, N.hard_constraints)
 
-            # 3. Query the oracle to get more instances
+            # 3. If the split has less than half of the original length, generate the remainings in order to get to 100.
             if len(N.training_examples) < self.length // 2:
-                X_from_oracle = self.oracle.generate_instances(N.hard_constraints, None, num_instances = (self.length // 10 - len(N.training_examples)))
+                X_from_oracle = self.oracle.generate_instances(N.hard_constraints, None, num_instances = (self.length // 2 - len(N.training_examples)))
                 y_from_oracle = self.oracle.model.predict(X_from_oracle)
             else:
                 X_from_oracle = np.empty((0, N.training_examples.shape[1]))
@@ -408,10 +408,10 @@ class TREPAN:
 
                 
                 # 13. Generate new set of instances for evaluation. The number is the defined number in init for evaluation minus the number from training examples.
-                if len(training_examples_c) < self.S_min:
-                    instances_for_evaluation = self.oracle.generate_instances(N.hard_constraints, best_split, self.S_min - (len(training_examples_c)))
-                else:
-                    instances_for_evaluation = np.array([], dtype=np.int64)
+                #if len(training_examples_c) < self.length:
+                instances_for_evaluation = self.oracle.generate_instances(N.hard_constraints, best_split, self.length)
+                #else:
+                #    instances_for_evaluation = np.array([], dtype=np.int64)
 
                 # 14. Create a new child node as leaf node, define it as child of N, and add to node count (for stopping criteria).
                 if training_examples_c.size != 0:
@@ -421,7 +421,7 @@ class TREPAN:
                     self.current_amount_of_nodes += 1
 
                     # 15. Get the most common class prediction using the oracle
-                    most_common_class, p_c = self._most_common_class_proportion(instances_for_evaluation, training_examples_c, training_predictions_c)
+                    most_common_class, p_c = self._most_common_class_proportion(instances_for_evaluation, training_predictions_c)
                     
                     # 16. If proportion is larger than some cut-off value, let it be a leaf and assign target class
                     C.label = most_common_class
@@ -492,6 +492,8 @@ class TREPAN:
 
         for candidate in F_N:
             if candidate[0] in node.available_features:
+
+
                 gain_ratio = self._calculate_gain_ratio(X, y, [candidate])
 
                 if gain_ratio > best_gain_ratio:
@@ -510,9 +512,15 @@ class TREPAN:
         best_m_of_n_split = best_binary_split
         current_conditions = list(best_binary_split.conditions)
 
-        def condition_exists(conditions, condition):
+        def condition_exists(conditions, candidate):
             for cond in conditions:
-                if cond[0] == condition[0] and cond[2] == condition[2]:
+                if cond[0] == candidate[0] and cond[2] == candidate[2]:
+                    return True
+            return False
+        
+        def condition_illegal(conditions, candidate):
+            for cond in conditions:
+                if cond[0] == candidate[0] and cond[2] == candidate[2]:
                     return True
             return False
     
@@ -675,11 +683,11 @@ class TREPAN:
             node.reach = (len(node.training_examples) / self.length)
 
     
-    def _most_common_class_proportion(self, X_from_oracle, training_examples_c, training_predictions_c):
+    def _most_common_class_proportion(self, X_from_oracle, training_predictions_c):
         # Predict the targets on the instances
         if X_from_oracle.size > 0:
-            y_pred = self.oracle.model.predict(X_from_oracle)
-            y = np.concatenate((training_predictions_c, y_pred))
+            y = self.oracle.model.predict(X_from_oracle)
+            #y = np.concatenate((training_predictions_c, y_pred))
         else:
             y = training_predictions_c    
                 #y = training_predictions_c
@@ -716,14 +724,17 @@ class TREPAN:
             feature_idx, threshold, direction = candidate_split
 
             for constraint in constraints:
-                constraint_conditions = constraint.conditions
+                constraint_m = constraint.m
+                
+                # First we check if the number of conditions equals the threshold, like 1-of-1, 2-of-2 etc. These are the only scenarios where we can safely eliminate from the search space.
+                if len(constraint.conditions) == constraint.m:
 
-                for constraint_feature_idx, constraint_threshold, constraint_direction in constraint_conditions:
-                    if feature_idx == constraint_feature_idx:
-                        if constraint_direction == "<=" and threshold > constraint_threshold:
-                            return False
-                        elif constraint_direction == ">" and threshold <= constraint_threshold:
-                            return False
+                    for constraint_feature_idx, constraint_threshold, constraint_direction in constraint.conditions:
+                        if feature_idx == constraint_feature_idx:
+                            if constraint_direction == "<=" and threshold > constraint_threshold:
+                                return False
+                            elif constraint_direction == ">" and threshold <= constraint_threshold:
+                                return False
 
             return True
 
@@ -850,7 +861,7 @@ class TREPAN:
             num_instances = len(y)
             unique_labels, label_counts = np.unique(y, return_counts=True)
             probabilities = label_counts / num_instances
-            entropy = -np.sum(probabilities * np.log2(probabilities))
+            entropy = -np.sum(probabilities * np.log2(probabilities + self.epsilon))
             return entropy
     
     def print_tree(self, node=None, level=0):
