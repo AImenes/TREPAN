@@ -37,13 +37,14 @@ print(f"The ANN has an accuracy of: {accuracy:.2f}")
 oracle = Oracle(model, X_train, y_train)
 
 #Parameters
-max_number_of_nodes = 15
+max_number_of_nodes = 20
 number_of_instances, max_conditions = X.shape
 S_min = number_of_instances // 10
 max_children_per_node = 5
 proportion_to_determine_class_in_leaf_node = 0.75
+minimum_how_many_instances_in_a_split_evaluation=20
 
-trepan = TREPAN(oracle=oracle, X=X_train, y=y_train, max_tree_size=max_number_of_nodes, max_conditions=max_conditions, max_children=max_children_per_node, cutoff=proportion_to_determine_class_in_leaf_node, num_of_instances=number_of_instances)
+trepan = TREPAN(oracle=oracle, X=X_train, y=y_train, max_tree_size=max_number_of_nodes, max_conditions=max_conditions, max_children=max_children_per_node, cutoff=proportion_to_determine_class_in_leaf_node, num_of_instances=minimum_how_many_instances_in_a_split_evaluation)
 trepan.fit()
 trepan.print_tree()
 graph = trepan.to_graphviz()

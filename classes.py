@@ -357,8 +357,8 @@ class TREPAN:
             F_N = self._extract_subset_of_candidate_splits(F, N.hard_constraints)
 
             # 3. If the split has less than half of the original length, generate the remainings in order to get to 100.
-            if len(N.training_examples) < self.length // 2:
-                X_from_oracle = self.oracle.generate_instances(N.hard_constraints, None, num_instances = (self.length // 2 - len(N.training_examples)))
+            if len(N.training_examples) < self.number_of_instances_for_generation:
+                X_from_oracle = self.oracle.generate_instances(N.hard_constraints, None, num_instances = (self.number_of_instances_for_generation - len(N.training_examples)))
                 y_from_oracle = self.oracle.model.predict(X_from_oracle)
             else:
                 X_from_oracle = np.empty((0, N.training_examples.shape[1]))
@@ -492,7 +492,6 @@ class TREPAN:
 
         for candidate in F_N:
             if candidate[0] in node.available_features:
-
 
                 gain_ratio = self._calculate_gain_ratio(X, y, [candidate])
 
