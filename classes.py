@@ -94,7 +94,7 @@ class Oracle:
         self.y = y
         self.discrete_features, self.continuous_features = self._separate_features_by_type(self.X)
         self.discrete_distributions = self._model_discrete_features()
-        self.continuous_kdes = self._model_continuous_features()
+        self.continuous_kdes = KernelDensity(kernel='gaussian', bandwidth=0.5).fit(self.continuous_features)
 
     def _separate_features_by_type(self, X, discrete_threshold=0.1):
         discrete_features = []
@@ -155,9 +155,11 @@ class Oracle:
                 new_instance.append(value)
 
             # Generate continuous features
-            for col, kde in enumerate(self.continuous_kdes):
-                value = round(kde.sample()[0][0], 1)
-                new_instance.append(value)
+            #for col, kde in enumerate(self.continuous_kdes):
+            new_sample = self.continuous_kdes.sample()[0]
+
+            # Round the values and append them to new_instance
+            new_instance = [round(value, 1) for value in new_sample]
 
             # Check if the generated instance satisfies all the constraints
             satisfies_constraints = True
@@ -219,9 +221,25 @@ class Node:
         self.score = 0
         self.reach = reach
         self.fidelity = 0
+        self.available_features = self._find_available_features()
 
     def _is_leaf(self):
         return len(self.children) == 0
+    
+    def _find_available_features(self):
+        # Initialize feature count dictionary
+        feature_count = {i: 0 for i in range(self.training_examples.shape[1])}
+
+        # Count constraints for each feature
+        for constraint in self.hard_constraints:
+            # Tuple of type (feature_idz, threshold_value, ge or lt)
+            for condition in constraint.conditions:
+                feature_count[condition[0]] += 1
+
+        # Determine available features (those with less than 2 constraints)
+        return [feature for feature, count in feature_count.items() if count < 2]
+
+
 
 # Define the MofN class
 class MofN:
@@ -248,6 +266,7 @@ class TREPAN:
         self.cutoff = cutoff
         self.S_min = len(self.X_true) // 10
         self.number_of_instances_for_generation = num_of_instances
+        self.epsilon = 1e-9
     
     def predict(self, X):
         """
@@ -338,8 +357,12 @@ class TREPAN:
             F_N = self._extract_subset_of_candidate_splits(F, N.hard_constraints)
 
             # 3. Query the oracle to get more instances
-            X_from_oracle = self.oracle.generate_instances(N.hard_constraints, None, num_instances = self.number_of_instances_for_generation - (len(N.training_examples)))
-            y_from_oracle = self.oracle.model.predict(X_from_oracle)
+            if len(N.training_examples) < self.length // 2:
+                X_from_oracle = self.oracle.generate_instances(N.hard_constraints, None, num_instances = (self.length // 10 - len(N.training_examples)))
+                y_from_oracle = self.oracle.model.predict(X_from_oracle)
+            else:
+                X_from_oracle = np.empty((0, N.training_examples.shape[1]))
+                y_from_oracle = np.empty((0,), dtype=np.int64)
 
             # 4. Calculate gain ratio on all splits in F_N using gain ratio criterion
             # Let best_initial_split be the top scoring candidate split in F_N using N.training_examples and X_from_oracle
@@ -350,7 +373,7 @@ class TREPAN:
 
             # 6. If the gain ratio = 1, then we already have a splitting condition which cannot be improved
             # by a m-of-n search. Therefore, we only start the m-of-n search if we do not have a gain_ratio of 1.
-            if not best_binary_split.gain_ratio == 1:
+            if not best_binary_split.gain_ratio >= 1:
                 
                 best_split = self._calculate_best_m_of_n_split(best_binary_split, F_N, N, X_from_oracle, y_from_oracle)
                 
@@ -379,19 +402,16 @@ class TREPAN:
                     N.leaf = True
                     break    
 
-                if split_satisfied:
-                    training_examples_c = deepcopy(N.training_examples[child_mask])
-                    training_predictions_c = deepcopy(N.training_predictions[child_mask])
-                else:
-                    training_examples_c = deepcopy(N.training_examples[~child_mask])
-                    training_predictions_c = deepcopy(N.training_predictions[~child_mask])
+                # Get new sets of entities
+                training_examples_c = deepcopy(N.training_examples[child_mask])
+                training_predictions_c = deepcopy(N.training_predictions[child_mask])
 
                 
                 # 13. Generate new set of instances for evaluation. The number is the defined number in init for evaluation minus the number from training examples.
                 if len(training_examples_c) < self.S_min:
                     instances_for_evaluation = self.oracle.generate_instances(N.hard_constraints, best_split, self.S_min - (len(training_examples_c)))
                 else:
-                    instances_for_evaluation = np.array([])
+                    instances_for_evaluation = np.array([], dtype=np.int64)
 
                 # 14. Create a new child node as leaf node, define it as child of N, and add to node count (for stopping criteria).
                 if training_examples_c.size != 0:
@@ -408,9 +428,11 @@ class TREPAN:
 
                     # Calculate the score of the node
                     self._calculate_node_score(C)
+
+                    # Calculate
                     
                     # Otherwise, append child node to the queue.
-                    if not p_c >= self.cutoff:
+                    if p_c < self.cutoff:
                         queue.append(C)
                 
                         
@@ -469,11 +491,15 @@ class TREPAN:
         y = np.concatenate((node.training_predictions, y_from_oracle))
 
         for candidate in F_N:
-            gain_ratio = self._calculate_gain_ratio(X, y, [candidate])
+            if candidate[0] in node.available_features:
+                gain_ratio = self._calculate_gain_ratio(X, y, [candidate])
 
-            if gain_ratio > best_gain_ratio:
-                best_gain_ratio = gain_ratio
-                best_candidate_split = [candidate]
+                if gain_ratio > best_gain_ratio:
+                    best_gain_ratio = gain_ratio
+                    best_candidate_split = [candidate]
+
+        if best_gain_ratio > 1:
+            best_gain_ratio = 1
 
         return best_candidate_split, best_gain_ratio
                 
@@ -497,7 +523,7 @@ class TREPAN:
             best_m = deepcopy(best_m_of_n_split.m)
 
             for candidate in F_N:
-                if candidate not in current_conditions and not condition_exists(current_conditions, candidate):
+                if (candidate not in current_conditions) and (not condition_exists(current_conditions, candidate)) and (candidate[0] in node.available_features):
                     # Try adding the candidate to the conditions
                     extended_conditions = current_conditions + [candidate]
 
@@ -513,7 +539,7 @@ class TREPAN:
                         candidate_gain_ratio = gain_ratio_m_of_n_plus_1
                         candidate_m = best_m
 
-                    #decimal error fix. COuld be 1.00000002 for instance.
+                    #decimal error fix. Could be 1.00000002 for instance.
                     if candidate_gain_ratio > 1:
                         candidate_gain_ratio = 1
 
@@ -532,7 +558,7 @@ class TREPAN:
                     best_m_of_n_split = MofN(best_m, current_conditions, best_gain_ratio)
 
             # Break the loop if the gain ratio is 1.0 or if the number of children exceeds the maximum allowed
-            if best_gain_ratio == 1.0 or self._get_child_count_for_MofN_structure(best_m, len(current_conditions)) >= self.max_children:
+            if best_gain_ratio >= 1.0 or self._get_child_count_for_MofN_structure(best_m, len(current_conditions)) >= self.max_children:
                 break
 
         return best_m_of_n_split
@@ -566,6 +592,7 @@ class TREPAN:
         for mofn_split in mofn_split_list:
             m = mofn_split.m
             conditions = mofn_split.conditions
+            satisfied = mofn_split.satisfied
 
             # Initialize an array to count the number of satisfied conditions for each instance
             satisfied_conditions_count = np.zeros(len(X), dtype=int)
@@ -578,7 +605,11 @@ class TREPAN:
 
             # Get the mask for instances satisfying the m-of-n split
             m_of_n_mask = satisfied_conditions_count >= m
-            overall_mask &= m_of_n_mask
+            
+            if satisfied:
+                overall_mask &= m_of_n_mask
+            else:
+                overall_mask &= (~m_of_n_mask)
 
         return overall_mask
 
@@ -760,7 +791,7 @@ class TREPAN:
         info_gain = y_entropy - avg_entropy
 
         # Calculate intrinsic value
-        intrinsic_value = -left_weight * np.log2(left_weight) - right_weight * np.log2(right_weight) if left_weight > 0 and right_weight > 0 else 0
+        intrinsic_value = -left_weight * np.log2(left_weight + self.epsilon) - right_weight * np.log2(right_weight + self.epsilon) if left_weight > 0 and right_weight > 0 else 0
 
         # Calculate gain ratio
         gain_ratio = info_gain / intrinsic_value if intrinsic_value != 0 else 0
@@ -795,7 +826,7 @@ class TREPAN:
 
             # Update the weighted child entropy sum and intrinsic value sum
             weighted_entropy += ((child_proportion * child_entropy) + ((1 - child_proportion) * not_child_entropy))
-            intrinsic_value -= ((child_proportion * np.log2(child_proportion)) + ((1 - child_proportion) * np.log2(1 - child_proportion)))
+            intrinsic_value -= ((child_proportion * np.log2(child_proportion + self.epsilon)) + ((1 - child_proportion) * np.log2(1 - child_proportion + self.epsilon)))
         
             # Calculate the information gain and gain ratio
             information_gain = parent_entropy - weighted_entropy
@@ -811,7 +842,7 @@ class TREPAN:
         proportions = label_counts / num_instances
         
         # Calculate the intrinsic value (split information)
-        intrinsic_value = -np.sum(proportions * np.log2(proportions))
+        intrinsic_value = -np.sum(proportions * np.log2(proportions + self.epsilon))
         
         return intrinsic_value
 
