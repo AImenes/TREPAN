@@ -45,21 +45,15 @@ class IrisNN(nn.Module):
         x = self.output(x)
         return x
 
-    def fit(self, X, y, epochs=10, batch_size=20, lr=0.01): 
-
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    def fit(self, X, y, epochs=30, batch_size=20, lr=0.01): 
 
         # Convert to PyTorch tensors
-        X_train = torch.tensor(X_train, dtype=torch.float32)
-        X_test = torch.tensor(X_test, dtype=torch.float32)
-        y_train = torch.tensor(y_train, dtype=torch.long)
-        y_test = torch.tensor(y_test, dtype=torch.long)
+        X_train = torch.tensor(X, dtype=torch.float32)
+        y_train = torch.tensor(y, dtype=torch.long)
 
         # Create data loaders
         train_data = TensorDataset(X_train, y_train)
-        test_data = TensorDataset(X_test, y_test)
         train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-        test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
         # Define the loss function and optimizer
         criterion = nn.CrossEntropyLoss()
@@ -213,7 +207,7 @@ class Oracle:
 
 # Define the Node class
 class Node:
-    def __init__(self, training_examples, training_predictions, constraints, leaf, parent=None):
+    def __init__(self, training_examples, training_predictions, constraints, leaf, parent=None, reach=1):
         self.leaf = leaf
         self.training_examples = training_examples
         self.training_predictions = training_predictions
@@ -221,8 +215,10 @@ class Node:
         self.split = None
         self.children = []
         self.parent = parent
-        self.label = None
+        self.label = np.argmax(np.bincount(self.training_predictions))
         self.score = 0
+        self.reach = reach
+        self.fidelity = 0
 
     def _is_leaf(self):
         return len(self.children) == 0
@@ -244,6 +240,7 @@ class TREPAN:
         self.X_true = X
         self.y_true = y
         self.y_predicted = self.oracle.model.predict(self.X_true) 
+        self.length = len(self.y_true)
         self.max_tree_size = max_tree_size
         self.max_conditions = max_conditions
         self.max_children = max_children
@@ -305,7 +302,8 @@ class TREPAN:
         # This happens in the init process of TREPAN
 
         # Initialize root node as leaf
-        self.root = Node(self.X_true, self.y_predicted, [], True)
+        self.root = Node(self.X_true, self.y_predicted, [], True, None, 1)
+        self._calculate_node_score(self.root)
 
         # Identify all possible candidate splits
         F = self._identify_candidate_splits(self.features)
@@ -406,13 +404,16 @@ class TREPAN:
                     most_common_class, p_c = self._most_common_class_proportion(instances_for_evaluation, training_examples_c, training_predictions_c)
                     
                     # 16. If proportion is larger than some cut-off value, let it be a leaf and assign target class
-                    if p_c >= self.cutoff:
-                        C.label = most_common_class
+                    C.label = most_common_class
+
+                    # Calculate the score of the node
+                    self._calculate_node_score(C)
                     
                     # Otherwise, append child node to the queue.
-                    else:
-                        C.label = most_common_class
+                    if not p_c >= self.cutoff:
                         queue.append(C)
+                
+                        
 
         if queue:
             for node in queue:
@@ -595,11 +596,8 @@ class TREPAN:
         best_node = None
 
         for node in queue:
-            score = self._calculate_node_score(node)
-            node.score = score
-
-            if score > best_score:
-                best_score = score
+            if node.score > best_score:
+                best_score = node.score
                 best_node = node
         
         return best_node
@@ -624,95 +622,27 @@ class TREPAN:
         score : float
             The node score.
         """
-        # Apply the constraints of the node
-        mask = self._apply_m_of_n_constraints(node.hard_constraints, node.training_examples)
-
-        # Apply mask
-        X_filtered = node.training_examples[mask]
-        y_filtered = node.training_predictions[mask]
+        # Calculate the reach
+        self._calculate_reach(node)
 
         # Calculate the fidelity
-        y_pred = self.oracle.model.predict(X_filtered)
-        fidelity = self._calculate_fidelity(y_filtered, y_pred)
-
-        # Calculate the reach
-        reach = self._calculate_reach(node.hard_constraints)
+        self._calculate_fidelity(node)
 
         # Calculate the node score
-        score = reach * fidelity
+        node.score = node.reach * (1 - node.fidelity)
 
-        if math.isnan(score):
-            return 0
-        
-        return score
 
-    def _calculate_fidelity(self, y_true, y_pred):
-        """
-        Calculate the fidelity of the predicted values compared to the true values.
+    def _calculate_fidelity(self, node):
+        temp_tree_prediction = self.predict(node.training_examples)
+        agreed_predictions = np.sum(node.training_predictions == temp_tree_prediction)
+        node.fidelity = agreed_predictions / len(node.training_predictions)
 
-        Parameters
-        ----------
-        y_true : numpy.ndarray
-            The true labels.
-        y_pred : numpy.ndarray
-            The predicted labels.
+    def _calculate_reach(self, node):
+        if node.parent:
+            node.reach = node.parent.reach * (len(node.training_examples) / self.length)
+        else:
+            node.reach = (len(node.training_examples) / self.length)
 
-        Returns
-        -------
-        fidelity : float
-            The fidelity score.
-        """
-        assert y_true.shape == y_pred.shape, "y_true and y_pred should have the same shape."
-        return np.mean(y_true == y_pred)
-
-    def _calculate_reach(self, constraints):
-        """
-        Calculate the reach of a given set of instances given a set of constraints.
-
-        Parameters
-        ----------
-        X_true : numpy.ndarray
-            The input feature matrix.
-        constraints : list of tuples
-            The constraints to apply.
-
-        Returns
-        -------
-        reach : float
-            The reach score.
-        """
-        num_instances, _ = self.X_true.shape
-        num_instances_satisfying_constraints = 0
-
-        if not constraints:
-            return 1
-
-        for instance in self.X_true:
-            satisfies_constraints = True
-            for constraint in constraints:
-                    m = constraint.m
-                    conditions = constraint.conditions
-                    satisfied_conditions_count = 0
-
-                    for feature_idx, threshold, direction in conditions:
-                        if direction == "<=" and instance[feature_idx] <= threshold:
-                            satisfied_conditions_count += 1
-                            #satisfies_constraints = False
-                            #break
-                        if direction == ">" and instance[feature_idx] > threshold:
-                            satisfied_conditions_count += 1
-                            #satisfies_constraints = False
-                            #break
-                    
-                    if satisfied_conditions_count < m:
-                        satisfies_constraints = False
-                        break
-
-            if satisfies_constraints:
-                    num_instances_satisfying_constraints += 1
-
-        reach = num_instances_satisfying_constraints / num_instances
-        return reach
     
     def _most_common_class_proportion(self, X_from_oracle, training_examples_c, training_predictions_c):
         # Predict the targets on the instances
