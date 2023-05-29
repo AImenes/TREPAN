@@ -12,6 +12,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+
 
 class IrisNN(nn.Module):
     """
@@ -883,7 +885,7 @@ class TREPAN:
             self.print_tree(child, level + 1)
 
 
-    def to_graphviz(self, node=None, graph=None, parent=None):
+    def to_graphviz(self, id_to_class, node=None, graph=None, parent=None):
         if node is None:
             node = self.root
 
@@ -894,16 +896,17 @@ class TREPAN:
         node_id = f"{id(node)}"
         if node.leaf:
             constraints_str = ',\n'.join([f"{('Satisfied' if mofn.satisfied else 'Not Satisfied')} {mofn.m}-of-\n{[condition for condition in mofn.conditions]}" for mofn in node.hard_constraints])
-            label = f"Leaf\n(Class: {node.label},\nConstraints:\n{constraints_str})"
+            label = f"Leaf\n(Class: {node.label} - {id_to_class[node.label]},\nConstraints:\n{constraints_str})"
+            graph.node(node_id, label=label, shape="ellipse", style="filled", fillcolor="olive", fontcolor="white")
         else:
             label = f"Node\n(Split: {node.split.m}-of-\n{[condition for condition in node.split.conditions]},\nGain Ratio: {node.split.gain_ratio:.2f})"
-
-        graph.node(node_id, label=label)
+            graph.node(node_id, label=label, shape="box", style="filled", fillcolor="midnightblue", fontcolor="white")
 
         if parent is not None:
             graph.edge(f"{id(parent)}", node_id)
 
         for child in node.children:
-            self.to_graphviz(child, graph, node)
+            self.to_graphviz(id_to_class, child, graph, node)
 
         return graph
+
