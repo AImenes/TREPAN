@@ -29,6 +29,8 @@ The implementation is built using Python 3.9 within a Conda environment. The req
 - PyTorch
 - scikit-learn
 - Graphviz
+- seaborn
+- Matplotlib
 
 To ensure accurate replication of results, please ensure all libraries are correctly installed in your Python environment.
 
