@@ -6,7 +6,7 @@ Detailed information about the algorithm can be found in the [original paper](ht
 
 ## Execution Instructions
 
-The current implementation includes a preliminary stopping criteria with `prob(p_c < (1 - epsilon)) < delta`. We aim to improve upon this by introducing a robust cutoff value for `p_c`.
+The current implementation does not include a stopping criteria with `prob(p_c < (1 - epsilon)) < delta`. Instead, we implemented a cutoff value for `p_c`.
 
 To execute the program, use the following command: `python run_continuous.py`.
 
