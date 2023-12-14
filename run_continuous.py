@@ -63,7 +63,7 @@ trepan = TREPAN(oracle=oracle, X=X_train, y=y_train, max_tree_size=max_number_of
 trepan.fit()
 trepan.print_tree()
 graph = trepan.to_graphviz(id_to_class_dict)
-graph.render("trepan_tree", view=True, cleanup=True)
+graph.render("trepan_tree_continuous", view=True, cleanup=True)
 print("Image successfully generated and placed in the working directory.")
 
 # Predictions

@@ -82,7 +82,9 @@ class HeartDiseaseNN(nn.Module):
 
     def predict(self, X):
         # Convert input to PyTorch tensor
-        X = torch.tensor(X, dtype=torch.float32)
+        
+        # X = torch.tensor(X, dtype=torch.float32)
+        X = torch.tensor(X.astype(np.float), dtype=torch.float32)
 
         # Get model predictions
         with torch.no_grad():
@@ -233,23 +235,25 @@ class Oracle:
         instances_created = 0
 
         while instances_created < num_instances:
-            new_instance = []
+            # new_instance = []
+            new_instance = [None] * (len(self.categorical_features_idxs)+len(self.continuous_features_mapping))
 
             #TODO generate discrete and continuous values..
             # Generate discrete features
             for col, distribution in enumerate(self.discrete_distributions):
-                value = np.random.choice(len(distribution), size=1, p=distribution)
+                value = np.random.choice(len(distribution), size=1, p=distribution).astype(np.float32)
                 discrete_feature_idx = self.discrete_features_mapping[col]
-                new_instance.insert(discrete_feature_idx,value)
+                new_instance[discrete_feature_idx] = value[0]
 
             # Generate continuous features
             #for col, kde in enumerate(self.continuous_kdes):
+            #TODO if random_state is used the code blocks...
             new_sample = self.continuous_kdes.sample()[0]
 
             # Round the values and append them to new_instance
             for col, value in enumerate(new_sample):
                 continuous_feature_idx = self.continuous_features_mapping[col]
-                new_instance.insert(continuous_feature_idx, value)
+                new_instance[continuous_feature_idx] = round(value, 1)
             # new_instance = [round(value, 1) for value in new_sample]
 
          
@@ -484,7 +488,7 @@ class TREPAN:
             # 6. If the gain ratio = 1, then we already have a splitting condition which cannot be improved
             # by a m-of-n search. Therefore, we only start the m-of-n search if we do not have a gain_ratio of 1.
             
-            #TODO m-of-n search was commented
+            #TODO m-of-n search was commented, to understand how it works
             if not best_binary_split.gain_ratio >= 1:
                 
                 best_split = self._calculate_best_m_of_n_split(best_binary_split, F_N, N, X_from_oracle, y_from_oracle)
@@ -552,7 +556,8 @@ class TREPAN:
 
         if queue:
             for node in queue:
-                most_common_class, p_c = self._most_common_class_proportion(np.array([]), node.training_examples, node.training_predictions)
+                # most_common_class, p_c = self._most_common_class_proportion(np.array([]), node.training_examples, node.training_predictions)
+                most_common_class, p_c = self._most_common_class_proportion(node.training_examples, node.training_predictions)
                 node.label = most_common_class
 
     def _identify_candidate_splits(self, X):
@@ -581,8 +586,8 @@ class TREPAN:
             unique_values = np.unique(X[:, col])
             
             # If there's only one unique value, continue to the next feature
-            if len(unique_values) == 1:
-                continue
+            # if len(unique_values) == 1:
+            #     continue
             #generate candidate split for categorical features
             if col in self.categorical_features_idxs: 
                 for value in unique_values:
@@ -860,7 +865,7 @@ class TREPAN:
                                 return False
                             elif constraint_direction == ">" and threshold <= constraint_threshold:
                                 return False
-                            #TODO: added to handle categorical features
+                            #added to handle categorical features
                             elif constraint_direction == "=" and threshold != constraint_threshold:
                                 return False
 

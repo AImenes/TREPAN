@@ -15,14 +15,15 @@ import pandas as pd
 # iris = load_iris()
 heart_df = pd.read_csv("./data/heart.csv")
 categorical = ['sex', 'cp', 'fbs', 'restecg', 'exang', 'slope', 'ca', 'thal']
-# continuous = ['age', 'trestbps', 'chol', 'thalach', 'oldpeak']
+continuous = ['age', 'trestbps', 'chol', 'thalach', 'oldpeak']
 # X = iris.data
 # y = iris.target
 X = heart_df.drop("target", axis=1)
-X = X.drop(columns=categorical)
-categorical_features_idxs = [heart_df.columns.get_loc(x) for x in categorical]
+# X = X.drop(columns=continuous)
+categorical_features_idxs = [X.columns.get_loc(x) for x in categorical]
 # continuous_features_idxs = [heart_df.columns.get_loc(x) for x in continuous]
-categorical_features_idxs = []
+
+# categorical_features_idxs = []
 y = heart_df['target']
 print(X.head())
 
@@ -30,7 +31,7 @@ print(X.head())
 # id_to_class_dict = {i: name for i, name in enumerate(iris.target_names)}
 id_to_class_dict = {0 : 'no_disease', 1 : 'disease'}
 
-model_path = "heart_model_continuous.pkl"
+model_path = "heart_model_categorical.pkl"
 # Split the dataset into training and testing sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
 
@@ -92,7 +93,7 @@ trepan = TREPAN(oracle=oracle, X=X_train, y=y_train, max_tree_size=max_number_of
 trepan.fit()
 trepan.print_tree()
 graph = trepan.to_graphviz(id_to_class_dict)
-graph.render("trepan_tree_continuous2", view=True, cleanup=True)
+graph.render("trepan_tree_heart", view=True, cleanup=True)
 print("Image successfully generated and placed in the working directory.")
 
 # Predictions
