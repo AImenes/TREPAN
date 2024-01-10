@@ -81,13 +81,14 @@ plt.show(block=False)
 oracle = Oracle(model, X_train, y_train, categorical_features_idxs)
 
 #Parameters
-max_number_of_nodes = 20
+max_number_of_nodes = 10
 number_of_instances, max_conditions = X.shape
 S_min = number_of_instances // 10
 max_children_per_node = 5
 proportion_to_determine_class_in_leaf_node = 0.75
 minimum_how_many_instances_in_a_split_evaluation=20
 
+#TODO check to parametrize passing the data to TREPAN
 trepan = TREPAN(oracle=oracle, X=X_train, y=y_train, max_tree_size=max_number_of_nodes, max_conditions=max_conditions, max_children=max_children_per_node, 
                 cutoff=proportion_to_determine_class_in_leaf_node, num_of_instances=minimum_how_many_instances_in_a_split_evaluation,categorical_features_idxs=categorical_features_idxs)
 trepan.fit()

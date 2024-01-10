@@ -80,7 +80,7 @@ plt.show(block=False)
 oracle = Oracle(model, X_train, y_train, categorical_features_idxs)
 
 #Parameters
-max_number_of_nodes = 20
+max_number_of_nodes = 10
 number_of_instances, max_conditions = X.shape
 S_min = number_of_instances // 10
 max_children_per_node = 5

@@ -238,7 +238,7 @@ class Oracle:
             # new_instance = []
             new_instance = [None] * (len(self.categorical_features_idxs)+len(self.continuous_features_mapping))
 
-            #TODO generate discrete and continuous values..
+            #generate discrete and continuous values..
             # Generate discrete features
             for col, distribution in enumerate(self.discrete_distributions):
                 value = np.random.choice(len(distribution), size=1, p=distribution).astype(np.float32)
@@ -488,7 +488,7 @@ class TREPAN:
             # 6. If the gain ratio = 1, then we already have a splitting condition which cannot be improved
             # by a m-of-n search. Therefore, we only start the m-of-n search if we do not have a gain_ratio of 1.
             
-            #TODO m-of-n search was commented, to understand how it works
+            #TODO m-of-n search with cateforical features, return a best split that is always satisfied
             if not best_binary_split.gain_ratio >= 1:
                 
                 best_split = self._calculate_best_m_of_n_split(best_binary_split, F_N, N, X_from_oracle, y_from_oracle)
@@ -595,7 +595,6 @@ class TREPAN:
             #generate candidate split for contnuous features
             else:
             # If there are more than two unique values, calculate thresholds as the midpoint between adjacent unique values,
-            #TODO why?
                 if len(unique_values) > 2:
                     thresholds = (unique_values[:-1] + unique_values[1:]) / 2.0
                 else:
@@ -641,11 +640,11 @@ class TREPAN:
                     return True
             return False
         
-        def condition_illegal(conditions, candidate):
-            for cond in conditions:
-                if cond[0] == candidate[0] and cond[2] == candidate[2]:
-                    return True
-            return False
+        # def condition_illegal(conditions, candidate):
+        #     for cond in conditions:
+        #         if cond[0] == candidate[0] and cond[2] == candidate[2]:
+        #             return True
+        #     return False
     
         while len(current_conditions) < self.max_conditions:
             # Find the best condition to add from F_N
@@ -758,7 +757,8 @@ class TREPAN:
         # many children a certain m-of-n structure will produce. Note that now, n is a number and not a condition for this calculation.
         # In our case, it will be nCm. For instance a 2-of-{A, B, C} will be a 2-of-3 structure with outcomes {A, B}, {A, C} and {B, C}
         # The number of children can be calculated: nCm = (n!) / ((n-m)! * m!)
-        return ((math.factorial(n)) / (math.factorial(n-m) * math.factorial(m)))
+        child_count = (math.factorial(n)) / (math.factorial(n-m) * math.factorial(m))
+        return child_count
     
     def _get_best_scoring_node_in_queue(self, queue):
         best_score = float('-inf')
