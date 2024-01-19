@@ -248,7 +248,7 @@ class Oracle:
             # Generate continuous features
             #for col, kde in enumerate(self.continuous_kdes):
             #TODO if random_state is used the code blocks...
-            new_sample = self.continuous_kdes.sample()[0]
+            new_sample = self.continuous_kdes.sample(random_state=1)[0]
 
             # Round the values and append them to new_instance
             for col, value in enumerate(new_sample):

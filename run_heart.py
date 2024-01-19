@@ -82,10 +82,10 @@ oracle = Oracle(model, X_train, y_train, categorical_features_idxs)
 
 #Parameters
 max_number_of_nodes = 10
-number_of_instances, max_conditions = X.shape
+number_of_instances, max_conditions = X.shape[0], 5
 S_min = number_of_instances // 10
 max_children_per_node = 5
-proportion_to_determine_class_in_leaf_node = 0.75
+proportion_to_determine_class_in_leaf_node = 0.8
 minimum_how_many_instances_in_a_split_evaluation=20
 
 #TODO check to parametrize passing the data to TREPAN
