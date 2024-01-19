@@ -15,6 +15,84 @@ from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 
 
+class HeartDiseaseNN(nn.Module):
+    """
+    A neural network model for the Heart dataset classification task.
+
+    This class extends the PyTorch `nn.Module` and implements a simple feedforward neural network
+    with a single hidden layer for the Iris dataset classification. It includes methods for training,
+    fitting, and predicting using the neural network.
+
+    Attributes:
+        fc1 (nn.Linear): First fully connected layer, mapping input features to hidden dimensions.
+        relu (nn.ReLU): Rectified Linear Unit activation function.
+        fc2 (nn.Linear): Second fully connected layer, mapping hidden dimensions to output dimensions.
+        softmax (nn.Softmax): Softmax activation function for converting logits to probabilities.
+
+    Example:
+        iris_nn = HeartDiseaseNN(input_dim=30, output_dim=3)
+        iris_nn.fit(X, y, epochs=100, batch_size=16, lr=0.01)
+        y_pred = iris_nn.predict(X)
+    """
+    def __init__(self, input_dim, output_dim):
+        super(HeartDiseaseNN, self).__init__()
+        self.fc1 = nn.Linear(in_features=input_dim, out_features=64)
+        self.fc2 = nn.Linear(in_features=64, out_features=128)
+        self.fc3 = nn.Linear(in_features=128, out_features=256)
+        self.output = nn.Linear(in_features=256, out_features=output_dim)
+        self.act = nn.LeakyReLU()
+        self.dropout = nn.Dropout(0.1)
+        # self.relu = nn.ReLU()
+        # self.output = nn.Linear(in_features=12, out_features=output_dim)
+ 
+    def forward(self, x):
+        x = self.act(self.fc1(x))
+        x = self.act(self.fc2(x))
+        x = self.act(self.fc3(x))
+        x = self.dropout(x)
+        x = self.output(x)
+        return x
+
+    def fit(self, X, y, epochs=30, batch_size=20, lr=0.01): 
+
+        # Convert to PyTorch tensors
+        X_train = torch.tensor(X, dtype=torch.float32)
+        y_train = torch.tensor(y, dtype=torch.long)
+
+        # Create data loaders
+        train_data = TensorDataset(X_train, y_train)
+        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+
+        # Define the loss function and optimizer
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(self.parameters(), lr=lr)
+
+        # Training loop
+        for epoch in range(epochs):
+            for data, labels in train_loader:
+                optimizer.zero_grad()
+                outputs = self.forward(data)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
+
+            # Print loss every 10 epochs
+            if epoch % 10 == 0:
+                print(f"Epoch: {epoch}, Loss: {loss.item()}")
+
+    def predict(self, X):
+        # Convert input to PyTorch tensor
+        
+        # X = torch.tensor(X, dtype=torch.float32)
+        X = torch.tensor(X.astype(np.float), dtype=torch.float32)
+
+        # Get model predictions
+        with torch.no_grad():
+            output = self.forward(X)
+            _, predicted_labels = torch.max(output, 1)
+
+        return predicted_labels.numpy()
+    
 class IrisNN(nn.Module):
     """
     A neural network model for the Iris dataset classification task.
@@ -90,17 +168,22 @@ class Oracle:
     """
     This is the oracle class used to bind the tree expansion and neural network together. We use this to generate more instances of values, model feature distribution and to keep track of the neural network.
     """
-    def __init__(self, model, X, y):
+    def __init__(self, model, X, y, categorical_features_idxs=[]):
         self.model = model
         self.X = X
         self.y = y
-        self.discrete_features, self.continuous_features = self._separate_features_by_type(self.X)
+        self.categorical_features_idxs = categorical_features_idxs
+        self.discrete_features, self.continuous_features, self.discrete_features_mapping, self.continuous_features_mapping = self._separate_features_by_type(self.X, categorical_features_idxs)
         self.discrete_distributions = self._model_discrete_features()
         self.continuous_kdes = KernelDensity(kernel='gaussian', bandwidth=0.5).fit(self.continuous_features)
+        # self.continuous_kdes = self._model_continuous_features()
+        self.test = 0
 
-    def _separate_features_by_type(self, X, discrete_threshold=0.1):
+    def _separate_features_by_type(self, X, categorical_features_idxs=None, discrete_threshold=0.1):
         discrete_features = []
+        discrete_features_mapping = {}
         continuous_features = []
+        continuous_features_mapping = {}
 
         if isinstance(X, pd.DataFrame):
             X = X.values
@@ -113,10 +196,13 @@ class Oracle:
             unique_values = np.unique(X[:, col])
             num_unique_values = len(unique_values)
             
-            if (np.issubdtype(X[:, col].dtype, np.number) and num_unique_values / num_instances <= discrete_threshold) or not np.issubdtype(X[:, col].dtype, np.number):
+            # if (np.issubdtype(X[:, col].dtype, np.number) and num_unique_values / num_instances <= discrete_threshold) or not np.issubdtype(X[:, col].dtype, np.number):
+            if col in categorical_features_idxs:
                 discrete_features.append(X[:, col])
+                discrete_features_mapping[len(discrete_features)-1] = col
             else:
                 continuous_features.append(X[:, col])
+                continuous_features_mapping[len(continuous_features)-1] = col
 
         if len(discrete_features) > 0:
             discrete_features = np.column_stack(discrete_features)
@@ -128,7 +214,7 @@ class Oracle:
         else:
             continuous_features = np.empty((num_instances, 0))
 
-        return discrete_features, continuous_features
+        return discrete_features, continuous_features, discrete_features_mapping, continuous_features_mapping
 
     def _model_discrete_features(self):
         distributions = []
@@ -149,20 +235,28 @@ class Oracle:
         instances_created = 0
 
         while instances_created < num_instances:
-            new_instance = []
+            # new_instance = []
+            new_instance = [None] * (len(self.categorical_features_idxs)+len(self.continuous_features_mapping))
 
+            #generate discrete and continuous values..
             # Generate discrete features
             for col, distribution in enumerate(self.discrete_distributions):
-                value = np.random.choice(len(distribution), p=distribution)
-                new_instance.append(value)
+                value = np.random.choice(len(distribution), size=1, p=distribution).astype(np.float32)
+                discrete_feature_idx = self.discrete_features_mapping[col]
+                new_instance[discrete_feature_idx] = value[0]
 
             # Generate continuous features
             #for col, kde in enumerate(self.continuous_kdes):
+            #TODO if random_state is used the code blocks...
             new_sample = self.continuous_kdes.sample()[0]
 
             # Round the values and append them to new_instance
-            new_instance = [round(value, 1) for value in new_sample]
+            for col, value in enumerate(new_sample):
+                continuous_feature_idx = self.continuous_features_mapping[col]
+                new_instance[continuous_feature_idx] = round(value, 1)
+            # new_instance = [round(value, 1) for value in new_sample]
 
+         
             # Check if the generated instance satisfies all the constraints
             satisfies_constraints = True
 
@@ -173,10 +267,18 @@ class Oracle:
                     satisfied_conditions_count = 0
 
                     for feature_idx, threshold, direction in conditions:
-                        if direction == "<=" and new_instance[feature_idx] <= threshold:
-                            satisfied_conditions_count += 1
-                        if direction == ">" and new_instance[feature_idx] > threshold:
-                            satisfied_conditions_count += 1
+                        if feature_idx not in self.categorical_features_idxs:
+                            if direction == "<=" and new_instance[feature_idx] <= threshold:
+                                satisfied_conditions_count += 1
+                            if direction == ">" and new_instance[feature_idx] > threshold:
+                                satisfied_conditions_count += 1
+                        elif feature_idx in self.categorical_features_idxs:
+                            if direction != "=": 
+                               raise SyntaxError("Wrong syntax for direction in tuple. Should be '='.")
+                            if new_instance[feature_idx] == threshold:
+                                satisfied_conditions_count += 1
+                        else:
+                            raise RuntimeError("Fatal error, condition non handled properly!")
 
                     if constraint.satisfied and satisfied_conditions_count < m:
                         satisfies_constraints = False
@@ -192,10 +294,19 @@ class Oracle:
                 satisfied_conditions_count = 0
 
                 for feature_idx, threshold, direction in conditions:
-                    if direction == "<=" and new_instance[feature_idx] <= threshold:
-                        satisfied_conditions_count += 1
-                    if direction == ">" and new_instance[feature_idx] > threshold:
-                        satisfied_conditions_count += 1
+                    if feature_idx not in self.categorical_features_idxs:
+                        if direction == "<=" and new_instance[feature_idx] <= threshold:
+                            satisfied_conditions_count += 1
+                        if direction == ">" and new_instance[feature_idx] > threshold:
+                            satisfied_conditions_count += 1
+                    elif feature_idx in self.categorical_features_idxs:
+                        if direction != "=": 
+                               raise SyntaxError("Wrong syntax for direction in tuple. Should be '='.")
+                        if new_instance[feature_idx] == threshold:
+                            satisfied_conditions_count += 1
+                    else:
+                        raise RuntimeError("Fatal error, condition non handled properly!")
+
 
                 if current_split.satisfied and satisfied_conditions_count >= m:
                     new_instances.append(new_instance)
@@ -253,7 +364,7 @@ class MofN:
 
 # Define the TREPAN class
 class TREPAN:
-    def __init__(self, oracle, X, y, max_tree_size, max_conditions, max_children, cutoff, num_of_instances):
+    def __init__(self, oracle, X, y, max_tree_size, max_conditions, max_children, cutoff, num_of_instances, categorical_features_idxs=[]):
         self.oracle = oracle
         self.root = None
         self.features = X
@@ -269,6 +380,7 @@ class TREPAN:
         self.S_min = len(self.X_true) // 10
         self.number_of_instances_for_generation = num_of_instances
         self.epsilon = 1e-9
+        self.categorical_features_idxs = categorical_features_idxs
     
     def predict(self, X):
         """
@@ -375,6 +487,8 @@ class TREPAN:
 
             # 6. If the gain ratio = 1, then we already have a splitting condition which cannot be improved
             # by a m-of-n search. Therefore, we only start the m-of-n search if we do not have a gain_ratio of 1.
+            
+            #TODO m-of-n search with cateforical features, return a best split that is always satisfied
             if not best_binary_split.gain_ratio >= 1:
                 
                 best_split = self._calculate_best_m_of_n_split(best_binary_split, F_N, N, X_from_oracle, y_from_oracle)
@@ -382,6 +496,7 @@ class TREPAN:
             # If there is a max gain initial split
             else:
                 best_split = best_binary_split
+            # best_split = best_binary_split
 
             # 8. Set current node as an internal node
             N.leaf = False
@@ -441,7 +556,8 @@ class TREPAN:
 
         if queue:
             for node in queue:
-                most_common_class, p_c = self._most_common_class_proportion(np.array([]), node.training_examples, node.training_predictions)
+                # most_common_class, p_c = self._most_common_class_proportion(np.array([]), node.training_examples, node.training_predictions)
+                most_common_class, p_c = self._most_common_class_proportion(node.training_examples, node.training_predictions)
                 node.label = most_common_class
 
     def _identify_candidate_splits(self, X):
@@ -470,19 +586,24 @@ class TREPAN:
             unique_values = np.unique(X[:, col])
             
             # If there's only one unique value, continue to the next feature
-            if len(unique_values) == 1:
-                continue
-
-            # If there are more than two unique values, calculate thresholds as the midpoint between adjacent unique values
-            if len(unique_values) > 2:
-                thresholds = (unique_values[:-1] + unique_values[1:]) / 2.0
+            # if len(unique_values) == 1:
+            #     continue
+            #generate candidate split for categorical features
+            if col in self.categorical_features_idxs: 
+                for value in unique_values:
+                    candidate_splits.append((col, value, '='))
+            #generate candidate split for contnuous features
             else:
-                thresholds = unique_values
+            # If there are more than two unique values, calculate thresholds as the midpoint between adjacent unique values,
+                if len(unique_values) > 2:
+                    thresholds = (unique_values[:-1] + unique_values[1:]) / 2.0
+                else:
+                    thresholds = unique_values
 
-            # Append the feature index and candidate split threshold to the list of candidate splits
-            for threshold in thresholds:
-                candidate_splits.append((col, round(threshold, 2), '<='))
-                candidate_splits.append((col, round(threshold, 2), '>'))
+                # Append the feature index and candidate split threshold to the list of candidate splits
+                for threshold in thresholds:
+                    candidate_splits.append((col, round(threshold, 2), '<='))
+                    candidate_splits.append((col, round(threshold, 2), '>'))
 
         return candidate_splits
 
@@ -519,11 +640,11 @@ class TREPAN:
                     return True
             return False
         
-        def condition_illegal(conditions, candidate):
-            for cond in conditions:
-                if cond[0] == candidate[0] and cond[2] == candidate[2]:
-                    return True
-            return False
+        # def condition_illegal(conditions, candidate):
+        #     for cond in conditions:
+        #         if cond[0] == candidate[0] and cond[2] == candidate[2]:
+        #             return True
+        #     return False
     
         while len(current_conditions) < self.max_conditions:
             # Find the best condition to add from F_N
@@ -585,8 +706,11 @@ class TREPAN:
             elif direction == '>':
                 current_mask = X[:, col] > threshold
             
+            elif direction == '=':
+                current_mask = X[:, col] == threshold
+            
             else:
-                raise SyntaxError("Wrong syntax for direction in tuple. Should be '<=' or '>'.")
+                raise SyntaxError("Wrong syntax for direction in tuple. Should be '<=', '>', or '='.")
             
             # Apply the current mask to the main mask using the AND operation
             mask = mask & current_mask
@@ -606,11 +730,15 @@ class TREPAN:
             # Initialize an array to count the number of satisfied conditions for each instance
             satisfied_conditions_count = np.zeros(len(X), dtype=int)
 
-            for feature_idx, threshold_value, less_than_or_greater in conditions:
-                if less_than_or_greater == '<=':
+            for feature_idx, threshold_value, direction in conditions:
+                if direction == '<=':
                     satisfied_conditions_count += (X[:, feature_idx] <= threshold_value)
-                else:
+                elif direction == '>':
                     satisfied_conditions_count += (X[:, feature_idx] > threshold_value)
+                elif direction == '=':
+                    satisfied_conditions_count += (X[:, feature_idx] == threshold_value)
+                else: 
+                    raise SyntaxError("Wrong syntax for direction in tuple. Should be '<=', '>', or '='.")
 
             # Get the mask for instances satisfying the m-of-n split
             m_of_n_mask = satisfied_conditions_count >= m
@@ -629,7 +757,8 @@ class TREPAN:
         # many children a certain m-of-n structure will produce. Note that now, n is a number and not a condition for this calculation.
         # In our case, it will be nCm. For instance a 2-of-{A, B, C} will be a 2-of-3 structure with outcomes {A, B}, {A, C} and {B, C}
         # The number of children can be calculated: nCm = (n!) / ((n-m)! * m!)
-        return ((math.factorial(n)) / (math.factorial(n-m) * math.factorial(m)))
+        child_count = (math.factorial(n)) / (math.factorial(n-m) * math.factorial(m))
+        return child_count
     
     def _get_best_scoring_node_in_queue(self, queue):
         best_score = float('-inf')
@@ -646,7 +775,7 @@ class TREPAN:
         """
         Calculate the score for a given node.
         
-        !! This doesnt work yet !!
+        TODO !! This doesnt work yet !!
 
         Parameters
         ----------
@@ -736,6 +865,9 @@ class TREPAN:
                                 return False
                             elif constraint_direction == ">" and threshold <= constraint_threshold:
                                 return False
+                            #added to handle categorical features
+                            elif constraint_direction == "=" and threshold != constraint_threshold:
+                                return False
 
             return True
 
@@ -768,6 +900,11 @@ class TREPAN:
                 elif direction == ">":
                     if instance[feature_idx] > threshold:
                         satisfied_conditions_count += 1
+                elif direction == "=":
+                    if instance[feature_idx] == threshold:
+                        satisfied_conditions_count += 1
+                else:
+                    raise SyntaxError("direction nt handled!")
 
             if satisfied_conditions_count >= m:
                 constraint_satisfied = mofn_constraint.satisfied
