@@ -82,7 +82,7 @@ oracle = Oracle(model, X_train, y_train, categorical_features_idxs)
 
 #Parameters
 max_number_of_nodes = 10
-number_of_instances, max_conditions = X.shape
+number_of_instances, max_conditions = X.shape[0], (X.shape[1]//2)-1
 S_min = number_of_instances // 10
 max_children_per_node = 5
 proportion_to_determine_class_in_leaf_node = 0.75

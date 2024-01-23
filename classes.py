@@ -774,8 +774,6 @@ class TREPAN:
     def _calculate_node_score(self, node):
         """
         Calculate the score for a given node.
-        
-        TODO !! This doesnt work yet !!
 
         Parameters
         ----------
