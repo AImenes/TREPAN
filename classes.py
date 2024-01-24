@@ -433,7 +433,7 @@ class Node:
 
 # Define the MofN class
 class MofN:
-    def __init__(self, m, conditions, gain_ratio = 0, information_gain = 0):
+    def __init__(self, m, conditions, gain_ratio = 0):
         self.m = m
         self.conditions = conditions
         self.gain_ratio = gain_ratio
@@ -733,7 +733,7 @@ class TREPAN:
                 if (candidate not in current_conditions) and (not condition_exists(current_conditions, candidate)) and (candidate[0] in node.available_features):
                     # Try adding the candidate to the conditions
                     extended_conditions = current_conditions + [candidate]
-                    
+
                     # Calculate gain ratio for m-of-n+1
                     gain_ratio_m_of_n_plus_1 = self._calculate_gain_ratio_m_of_n(X, y, extended_conditions, best_m)
                     # Calculate gain ratio for m+1-of-n+1
@@ -755,7 +755,7 @@ class TREPAN:
                         best_new_condition = candidate
                         best_gain_ratio = candidate_gain_ratio
                         best_m = candidate_m
-                    
+
             # Add the best new condition to the current conditions
             if best_new_condition is not None:
                 current_conditions.append(best_new_condition)
