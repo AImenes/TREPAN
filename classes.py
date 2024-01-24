@@ -19,7 +19,7 @@ class LoanNN(nn.Module):
     A neural network model for the Loan dataset classification task.
 
     This class extends the PyTorch `nn.Module` and implements a simple feedforward neural network
-    with a single hidden layer for the Iris dataset classification. It includes methods for training,
+    with a single hidden layer for the Loan dataset classification. It includes methods for training,
     fitting, and predicting using the neural network.
 
     Attributes:
@@ -31,7 +31,7 @@ class LoanNN(nn.Module):
     Example:
         loan_nn = LoanDiseaseNN(input_dim=30, output_dim=2)
         loan_nn.fit(X, y, epochs=100, batch_size=16, lr=0.01)
-        y_pred = iris_nn.predict(X)
+        y_pred = loan_nn.predict(X)
     """
     def __init__(self, input_dim, output_dim):
         super(LoanNN, self).__init__()
@@ -107,9 +107,9 @@ class HeartDiseaseNN(nn.Module):
         softmax (nn.Softmax): Softmax activation function for converting logits to probabilities.
 
     Example:
-        iris_nn = HeartDiseaseNN(input_dim=30, output_dim=3)
-        iris_nn.fit(X, y, epochs=100, batch_size=16, lr=0.01)
-        y_pred = iris_nn.predict(X)
+        heart_nn = HeartDiseaseNN(input_dim=30, output_dim=3)
+        heart_nn.fit(X, y, epochs=100, batch_size=16, lr=0.01)
+        y_pred = heart_nn.predict(X)
     """
     def __init__(self, input_dim, output_dim):
         super(HeartDiseaseNN, self).__init__()
@@ -540,7 +540,7 @@ class TREPAN:
             
             # 1. Evaluate which node in the queue has the highest score, and we pop this one
             # The formula we use is f(n) = reach(n) * (1 - fidelity(n))
-            # Todo: Fix fidelity to compare towards tree.
+            # TODO: Fix fidelity to compare towards tree.
             N = self._get_best_scoring_node_in_queue(queue)
             queue.remove(N)
 
@@ -565,7 +565,6 @@ class TREPAN:
             # 6. If the gain ratio = 1, then we already have a splitting condition which cannot be improved
             # by a m-of-n search. Therefore, we only start the m-of-n search if we do not have a gain_ratio of 1.
             
-            #TODO m-of-n search with cateforical features, return a best split that is always satisfied
             if not best_binary_split.gain_ratio >= 1:
                 
                 best_split = self._calculate_best_m_of_n_split(best_binary_split, F_N, N, X_from_oracle, y_from_oracle)
