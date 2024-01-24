@@ -14,6 +14,83 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 
+class LoanNN(nn.Module):
+    """
+    A neural network model for the Loan dataset classification task.
+
+    This class extends the PyTorch `nn.Module` and implements a simple feedforward neural network
+    with a single hidden layer for the Iris dataset classification. It includes methods for training,
+    fitting, and predicting using the neural network.
+
+    Attributes:
+        fc1 (nn.Linear): First fully connected layer, mapping input features to hidden dimensions.
+        relu (nn.ReLU): Rectified Linear Unit activation function.
+        fc2 (nn.Linear): Second fully connected layer, mapping hidden dimensions to output dimensions.
+        softmax (nn.Softmax): Softmax activation function for converting logits to probabilities.
+
+    Example:
+        loan_nn = LoanDiseaseNN(input_dim=30, output_dim=2)
+        loan_nn.fit(X, y, epochs=100, batch_size=16, lr=0.01)
+        y_pred = iris_nn.predict(X)
+    """
+    def __init__(self, input_dim, output_dim):
+        super(LoanNN, self).__init__()
+        self.fc1 = nn.Linear(in_features=input_dim, out_features=64)
+        self.fc2 = nn.Linear(in_features=64, out_features=128)
+        self.fc3 = nn.Linear(in_features=128, out_features=256)
+        self.output = nn.Linear(in_features=256, out_features=output_dim)
+        self.act = nn.ReLU()
+        # self.dropout = nn.Dropout(0.1)
+        # self.relu = nn.ReLU()
+        # self.output = nn.Linear(in_features=12, out_features=output_dim)
+ 
+    def forward(self, x):
+        x = self.act(self.fc1(x))
+        x = self.act(self.fc2(x))
+        x = self.act(self.fc3(x))
+        # x = self.dropout(x)
+        x = self.output(x)
+        return x
+
+    def fit(self, X, y, epochs=30, batch_size=20, lr=0.01): 
+
+        # Convert to PyTorch tensors
+        X_train = torch.tensor(X, dtype=torch.float32)
+        y_train = torch.tensor(y, dtype=torch.long)
+
+        # Create data loaders
+        train_data = TensorDataset(X_train, y_train)
+        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+
+        # Define the loss function and optimizer
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(self.parameters(), lr=lr)
+
+        # Training loop
+        for epoch in range(epochs):
+            for data, labels in train_loader:
+                optimizer.zero_grad()
+                outputs = self.forward(data)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
+
+            # Print loss every 10 epochs
+            if epoch % 10 == 0:
+                print(f"Epoch: {epoch}, Loss: {loss.item()}")
+
+    def predict(self, X):
+        # Convert input to PyTorch tensor
+        
+        # X = torch.tensor(X, dtype=torch.float32)
+        X = torch.tensor(X.astype(np.float), dtype=torch.float32)
+
+        # Get model predictions
+        with torch.no_grad():
+            output = self.forward(X)
+            _, predicted_labels = torch.max(output, 1)
+
+        return predicted_labels.numpy()
 
 class HeartDiseaseNN(nn.Module):
     """
@@ -248,7 +325,7 @@ class Oracle:
             # Generate continuous features
             #for col, kde in enumerate(self.continuous_kdes):
             #TODO if random_state is used the code blocks...
-            new_sample = self.continuous_kdes.sample(random_state=1)[0]
+            new_sample = self.continuous_kdes.sample()[0]
 
             # Round the values and append them to new_instance
             for col, value in enumerate(new_sample):
@@ -356,7 +433,7 @@ class Node:
 
 # Define the MofN class
 class MofN:
-    def __init__(self, m, conditions, gain_ratio = 0):
+    def __init__(self, m, conditions, gain_ratio = 0, information_gain = 0):
         self.m = m
         self.conditions = conditions
         self.gain_ratio = gain_ratio
@@ -656,7 +733,7 @@ class TREPAN:
                 if (candidate not in current_conditions) and (not condition_exists(current_conditions, candidate)) and (candidate[0] in node.available_features):
                     # Try adding the candidate to the conditions
                     extended_conditions = current_conditions + [candidate]
-
+                    
                     # Calculate gain ratio for m-of-n+1
                     gain_ratio_m_of_n_plus_1 = self._calculate_gain_ratio_m_of_n(X, y, extended_conditions, best_m)
                     # Calculate gain ratio for m+1-of-n+1
@@ -678,7 +755,7 @@ class TREPAN:
                         best_new_condition = candidate
                         best_gain_ratio = candidate_gain_ratio
                         best_m = candidate_m
-
+                    
             # Add the best new condition to the current conditions
             if best_new_condition is not None:
                 current_conditions.append(best_new_condition)
@@ -774,8 +851,6 @@ class TREPAN:
     def _calculate_node_score(self, node):
         """
         Calculate the score for a given node.
-        
-        TODO !! This doesnt work yet !!
 
         Parameters
         ----------

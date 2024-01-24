@@ -1,5 +1,6 @@
 # from sklearn.datasets import load_iris
 from sklearn.compose import ColumnTransformer
+from sklearn.discriminant_analysis import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, accuracy_score
 from sklearn.pipeline import Pipeline
@@ -11,13 +12,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 
-#Train ANN to represent with TREPAN
-# iris = load_iris()
+#Train ANN to represent with TREPANs
 heart_df = pd.read_csv("./data/heart.csv")
 categorical = ['sex', 'cp', 'fbs', 'restecg', 'exang', 'slope', 'ca', 'thal']
 continuous = ['age', 'trestbps', 'chol', 'thalach', 'oldpeak']
-# X = iris.data
-# y = iris.target
 X = heart_df.drop("target", axis=1)
 # X = X.drop(columns=continuous)
 categorical_features_idxs = [X.columns.get_loc(x) for x in categorical]
@@ -31,19 +29,19 @@ print(X.head())
 # id_to_class_dict = {i: name for i, name in enumerate(iris.target_names)}
 id_to_class_dict = {0 : 'no_disease', 1 : 'disease'}
 
-model_path = "heart_model_categorical.pkl"
+model_path = "heart_model.pkl"
+
+#min max scaler only on continous features
+sc = MinMaxScaler()
+X[continuous] = sc.fit_transform(X[continuous])
+
 # Split the dataset into training and testing sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
-
-# print(type(X_train))
-# sc = MinMaxScaler()
-# X_train = sc.fit_transform(X_train)
-# X_test = sc.transform(X_test)
 X_train = X_train.to_numpy()
 X_test = X_test.to_numpy()
 
 # print(type(X_train))
-print(X_train[:5])
+# print(X_train[:5])
 input_dimension = X_train.shape[1]
 output_dimension = len(set(y_train))
 
@@ -82,10 +80,11 @@ oracle = Oracle(model, X_train, y_train, categorical_features_idxs)
 
 #Parameters
 max_number_of_nodes = 10
-number_of_instances, max_conditions = X.shape[0], 5
+number_of_instances, max_conditions = X.shape[0], (X.shape[1]//2)
+# number_of_instances, max_conditions = X.shape[0], 5
 S_min = number_of_instances // 10
 max_children_per_node = 5
-proportion_to_determine_class_in_leaf_node = 0.8
+proportion_to_determine_class_in_leaf_node = 0.75
 minimum_how_many_instances_in_a_split_evaluation=20
 
 #TODO check to parametrize passing the data to TREPAN
