@@ -441,7 +441,7 @@ class MofN:
 
 # Define the TREPAN class
 class TREPAN:
-    def __init__(self, oracle, X, y, max_tree_size, max_conditions, max_children, cutoff, num_of_instances, categorical_features_idxs=[]):
+    def __init__(self, oracle, X=None, y=None, max_tree_size=10, max_conditions=5, max_children=5, cutoff=0.75, num_of_instances=20, categorical_features_idxs=[]):
         self.oracle = oracle
         self.root = None
         self.features = X
