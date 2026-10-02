@@ -1,0 +1,11 @@
+digraph TREPAN {
+    graph [rankdir=TB, fontname="Helvetica"];
+    label="TREPAN tree for heart"; labelloc=t;
+    node [fontname="Helvetica", style=filled, fontcolor=white];
+    edge [fontname="Helvetica"];
+    n0 [label="3 of {sex != 0, cp == 0, oldpeak > 1.676, slope != 2, ca != 0, thal == 3}", shape=box, fillcolor="#191970"];
+    n0 -> n1 [label="yes"];
+    n0 -> n2 [label="no"];
+    n1 [label="class: no disease\\n[no disease: 923, disease: 77]\\nfidelity 0.92", shape=ellipse, fillcolor="#6b8e23"];
+    n2 [label="class: disease\\n[no disease: 46, disease: 954]\\nfidelity 0.95", shape=ellipse, fillcolor="#6b8e23"];
+}
