@@ -1,0 +1,9 @@
+# Core runtime dependencies
+numpy>=1.22
+scipy>=1.8
+# Examples and tests
+scikit-learn>=1.1
+pandas>=1.4
+graphviz>=0.20
+matplotlib>=3.5
+pytest>=7

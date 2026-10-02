@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trepan"
+version = "1.0.0"
+description = "TREPAN: extract comprehensible m-of-n decision trees from trained neural networks and other black-box classifiers"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Anders Imenes" }]
+keywords = ["trepan", "decision tree", "rule extraction", "explainability", "neural networks", "m-of-n"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.22",
+    "scipy>=1.8",
+]
+
+[project.optional-dependencies]
+examples = ["scikit-learn>=1.1", "pandas>=1.4", "graphviz>=0.20", "matplotlib>=3.5"]
+torch = ["torch>=2.0"]
+dev = ["pytest>=7", "scikit-learn>=1.1", "pandas>=1.4", "graphviz>=0.20", "ruff>=0.4"]
+
+[project.urls]
+Repository = "https://github.com/AImenes/TREPAN"
+
+[tool.setuptools]
+packages = ["trepan"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "D"]
+ignore = ["D105", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]
+"examples/*" = ["D"]
